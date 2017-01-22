@@ -268,6 +268,9 @@ public strictfp class RobotPlayer {
     }
 
     static boolean buildIt(RobotType type, Direction dir) throws GameActionException {
+    	if (dir == null)
+    		dir = rc.getLocation().directionTo(mapCentre);
+    	
 		for (int i=0; i<20; i++) {
 			if (rc.canBuildRobot(type, dir)) {
 				rc.buildRobot(type, dir);
@@ -770,10 +773,10 @@ public strictfp class RobotPlayer {
     
     static void moveTowards(RobotInfo target) throws GameActionException {
     	MapLocation here = rc.getLocation();
-    	Direction dir = here.directionTo(target.getLocation());
-    	float dist = here.distanceTo(target.getLocation()) - rc.getType().bodyRadius - target.getType().bodyRadius;
+    	Direction dir = target.getLocation().directionTo(here).rotateRightDegrees(5);
+    	float dist = rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS / 2;
     	
-    	tryMove(here.add(dir, dist));
+    	tryMove(target.getLocation().add(dir, dist));
     }
 
     static void runLumberjack() throws GameActionException {
@@ -790,16 +793,16 @@ public strictfp class RobotPlayer {
             	checkShake();
             	
             	// See if there are any enemy robots within striking range
-                RobotInfo[] local = rc.senseNearbyRobots(GameConstants.LUMBERJACK_STRIKE_RADIUS+RobotType.LUMBERJACK.strideRadius, enemy);   
+                RobotInfo[] local = rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS+RobotType.LUMBERJACK.strideRadius, enemy);   
                 if (local.length > 0) {
                 	RobotInfo target = local[0];
-                	if (target.getLocation().distanceTo(rc.getLocation()) > RobotType.LUMBERJACK.bodyRadius+GameConstants.LUMBERJACK_STRIKE_RADIUS) {
+                	if (target.getLocation().distanceTo(rc.getLocation()) >= RobotType.LUMBERJACK.bodyRadius+GameConstants.LUMBERJACK_STRIKE_RADIUS) {
                 		overrideDanger = canBeat(target);
                 		moveTowards(target);
                 	}
                 }
                 
-                local = rc.senseNearbyRobots(GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
+                local = rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
                 if (local.length > 0) {
                     // Use strike() to hit all nearby robots!
                     rc.strike();
