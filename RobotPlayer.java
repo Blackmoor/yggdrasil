@@ -12,6 +12,7 @@ import battlecode.common.*;
  * Broadcast the location of places needing muscle (our gardeners in distress or enemy units)
  * Find a way to make use of broadcast data from the enemy
  * Improve when dodge is called - maybe remove it and replace default tryMove with more tests
+ * Units that move out of sensor range could be followed
  */
 public strictfp class RobotPlayer {
 	static final int debugLevel = 0; // 0 = off, 1 = function calls, 2 = logic, 3/4 = detailed info
@@ -23,6 +24,7 @@ public strictfp class RobotPlayer {
     static TreeInfo[] trees; //Cached result from senseNearbyTree
     static BulletInfo[] bullets; //Cached result from senseNearbyBullets
     static boolean overrideDanger = false;
+    static MapLocation rallyPoint = null;
 
     /**
      * run() is the method that is called when a robot is instantiated in the Battlecode world.
@@ -96,6 +98,12 @@ public strictfp class RobotPlayer {
     	trees = rc.senseNearbyTrees();
     	bullets = rc.senseNearbyBullets();
     	overrideDanger = false;
+    	RobotInfo enemy = findNearestRobot(null, rc.getTeam().opponent());
+    	if (enemy != null) {
+    		help(enemy.getLocation());
+    	} else {
+    		checkHelp();
+    	}
     }
     
     static float bulletExchangeRate() {
@@ -114,6 +122,42 @@ public strictfp class RobotPlayer {
     	} else if (bullets > 1000) {   		
     		int newVps = (int)((bullets - 1000)/exchangeRate);
     		rc.donate(newVps*exchangeRate);
+    	}
+    }
+    
+    static void help(MapLocation here) throws GameActionException {
+    	int round = rc.readBroadcast(0);
+    	if (round == rc.getRoundNum()) //Someone else called for help this turn
+    		return;
+    	
+    	rc.broadcast(0, rc.getRoundNum());
+    	rc.broadcast(1, (int)here.x);
+    	rc.broadcast(2, (int)here.y);
+    	debug(1, "Calling for help " + here);
+    	setIndicator(here, 0, 0, 255);
+    }
+    
+    static void cancelHelp() throws GameActionException {
+    	rc.broadcast(0, 0);
+    	rallyPoint = null;
+    	debug(1, "Cancelling help");
+    }
+    
+    static void checkHelp() throws GameActionException {
+    	int round = rc.readBroadcast(0);
+    	if (round > 0) {
+    		if (rc.getRoundNum() - round < 50) { //Current help
+    			rallyPoint = new MapLocation(rc.readBroadcast(1), rc.readBroadcast(2));
+    			if (rc.canSenseLocation(rallyPoint)) {
+    				RobotInfo enemy = findNearestRobot(null, rc.getTeam().opponent());
+    				if (enemy == null)
+    					cancelHelp();
+    			}
+    		} else {
+    			cancelHelp();
+    		}
+    	} else {
+    		rallyPoint = null;
     	}
     }
     
@@ -240,7 +284,7 @@ public strictfp class RobotPlayer {
             		}
             	}
             	
-            	if (((prime && rc.getRoundNum() == 1) || rc.getRoundNum() > 15) && (hire || isGoodGardenLocation())) {
+            	if (((prime && rc.getRoundNum() == 1) || rc.getRoundNum() > 25) && rc.getTeamBullets() > 150 && (hire || isGoodGardenLocation())) {
 	                Direction dir = rc.getLocation().directionTo(mapCentre);
 	                if (dir == null)
 	                	dir = randomDirection();
@@ -349,26 +393,27 @@ public strictfp class RobotPlayer {
                 if (rc.isBuildReady()) {
                 	//If there are trees in sight that are not ours - build a lumberjack if there isn't one nearby
 	                int lumberjacks = 0;
-	                int enemies = 0;
 	                int scouts = 0; // Number of enemy scouts
-	                int allies = 0;
                 	int numTrees = 0;
+                	int defenders = 0;
                 	for (TreeInfo t:trees) {
                 		if (t.getTeam() != me) {
                 			numTrees++;
                 		}
                 	}
 	                
+                	RobotInfo nearestEnemy = null;
 	                for (RobotInfo r: robots) {
 	                	if (r.getTeam() != me) {
-	                		enemies++;
+	                		if (nearestEnemy == null)
+	                			nearestEnemy = r;
 	                		if (r.getType() == RobotType.SCOUT)
 	                			scouts++;
 	                	} else {
 	                		if (r.getType() == RobotType.LUMBERJACK)
 	                			lumberjacks++;
 	                		else if (r.getType().canAttack())
-	                			allies++;
+	                			defenders++;
 	                	}
 	                }
 	                
@@ -379,18 +424,20 @@ public strictfp class RobotPlayer {
                 		scoutBuilt = buildIt(RobotType.SCOUT, buildDir);
 	                }
                 
-	                if (rc.isBuildReady() && enemies > 0 && enemies >= allies) {
-	                	if (rc.hasRobotBuildRequirements(RobotType.TANK)) {
-		                	//Move to centre and build a soldier
-	                		if (centre != null)
-	                			tryMove(centre);
-	                		buildIt(RobotType.TANK, buildDir);
-	                	} else if (rc.hasRobotBuildRequirements(RobotType.SOLDIER)) {
-		                	//Move to centre and build a soldier
-	            			if (centre != null)
-	            				tryMove(centre);
-	                		buildIt(RobotType.SOLDIER, buildDir);
-	                	}
+	                if (defenders == 0) {
+	                	if (rc.isBuildReady()) {
+		                	if (rc.hasRobotBuildRequirements(RobotType.TANK)) {
+			                	//Move to centre and build a soldier
+		                		if (centre != null)
+		                			tryMove(centre);
+		                		buildIt(RobotType.TANK, buildDir);
+		                	} else if (rc.hasRobotBuildRequirements(RobotType.SOLDIER)) {
+			                	//Move to centre and build a soldier
+		            			if (centre != null)
+		            				tryMove(centre);
+		                		buildIt(RobotType.SOLDIER, buildDir);
+		                	}
+		                }
 	                }
 	                
 	                if (rc.hasRobotBuildRequirements(RobotType.LUMBERJACK) && rc.isBuildReady()) {
@@ -419,7 +466,7 @@ public strictfp class RobotPlayer {
 	                }
                 }
                 
-            	if (!rc.hasMoved())
+            	if (!rc.hasMoved() && centre != null)
             		tryMove(centre);
                 
                 if (rc.canWater()) {
@@ -531,7 +578,10 @@ public strictfp class RobotPlayer {
                 boolean stay = manageCombat();
                 dodge();
                 if (!stay) {
-                	wander();
+                	if (rallyPoint != null)
+                		tryMove(rallyPoint);
+                	else
+                		wander();
                 }
 
                 // Clock.yield() makes the robot wait until the next turn, then it will perform this loop again
@@ -1023,9 +1073,9 @@ public strictfp class RobotPlayer {
      * @throws GameActionException
      */
     static boolean tryMove(MapLocation to, float degreeOffset, int checksPerSide) throws GameActionException {	
-    	if (rc.hasMoved())
+    	if (rc.hasMoved() || to == null)
     		return false;    	
-           	
+        
     	MapLocation here = rc.getLocation();
     	Direction dir = here.directionTo(to);
     	float dist = here.distanceTo(to); 
