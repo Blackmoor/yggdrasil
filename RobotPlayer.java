@@ -502,21 +502,21 @@ public strictfp class RobotPlayer {
     	if (rc.canFirePentadShot() && 2*spreadAngle >= Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*4)) { //All 5 shots will hit
     		shotsToFire = 5;
     		debug (3, "Firing 5 - all should hit");
-    	} else if (rc.canFirePentadShot() && 2*spreadAngle >= Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*3)) { //4 shots will hit
+    	} else if (rc.canFirePentadShot() && 2*spreadAngle > Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*3)) { //4 shots will hit
     		shotsToFire = 5;
     		shotDir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES/2);
     		debug (3, "Firing 5 - 4 should hit");
-    	} else if (rc.canFireTriadShot() && 2*spreadAngle >= Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES*2)) { //All 3 triad shots will hit
+    	} else if (rc.canFireTriadShot() && 2*spreadAngle > Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES*2)) { //All 3 triad shots will hit
     		shotsToFire = 3;
     		debug (3, "Firing 3 - all should hit");
-    	} else if (rc.canFirePentadShot() && 2*spreadAngle >= Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*2)) { //3 of 5 shots will hit)
+    	} else if (rc.canFirePentadShot() && 2*spreadAngle > Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*2)) { //3 of 5 shots will hit)
     		shotsToFire = 5;
     		debug (3, "Firing 5 - 3 should hit");
-    	} else if (rc.canFireTriadShot() && 2*spreadAngle >= Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES*2)) { //2 of a triad shots will hit
+    	} else if (rc.canFireTriadShot() && 2*spreadAngle > Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES*2)) { //2 of a triad shots will hit
     		shotsToFire = 3;
     		shotDir.rotateLeftDegrees(GameConstants.TRIAD_SPREAD_DEGREES/2);
     		debug (3, "Firing 3 - 2 should hit");
-    	} else if (rc.canFirePentadShot() && 2*spreadAngle >= Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES)) { //2 of 5 shots will hit)
+    	} else if (rc.canFirePentadShot() && 2*spreadAngle > Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES)) { //2 of 5 shots will hit
     		shotsToFire = 5;
     		shotDir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES/2);
     		debug (3, "Firing 5 - 2 should hit");
@@ -903,9 +903,10 @@ public strictfp class RobotPlayer {
                     RobotInfo target = findNearestRobot(null, enemy);
 
                     // If there is a robot, move towards it
-                    if(target != null) {
+                    if(target != null && canBeat(target)) {
                         moveTowards(target);
-                    } else if (!chopped) {
+                    }
+                    if (!chopped) {
                         wander();
                     }
                     
