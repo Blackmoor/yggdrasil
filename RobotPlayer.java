@@ -489,7 +489,7 @@ public strictfp class RobotPlayer {
                 }
 
 	            //See if we can plant a tree this turn
-                if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved() && rc.getTeamBullets() >= 99) {
+                if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved() && rc.getTeamBullets() >= 75) {
                 	for (int currentSpoke=0; currentSpoke<spokes.length; currentSpoke++) {               
                 		if (plantFrom[currentSpoke] != null && rc.canMove(plantFrom[currentSpoke]) && !rc.isCircleOccupiedExceptByThisRobot(treeCentre[currentSpoke], GameConstants.BULLET_TREE_RADIUS)) {
                 			rc.move(plantFrom[currentSpoke]);
