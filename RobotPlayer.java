@@ -6,8 +6,9 @@ import battlecode.common.*;
  * Todo list
  * 
  * Units that move out of sensor range could be followed
- * Manage bullet counts better
- * Build a lumberjack before a tree if there are trees to chop and no lumberjacks in sight
+ * Manage bullet counts better - need to keep some for firing
+ * Scouts run out of bytecodes when many trees around and looking for a safe one
+ * Wall following needs to find the nearest object on the side we are following
  */
 public strictfp class RobotPlayer {
 	static final int debugLevel = 0; // 0 = off, 1 = function calls, 2 = logic, 3/4 = detailed info
@@ -358,6 +359,8 @@ public strictfp class RobotPlayer {
     	debug(1, "buildIt: type = " + type + " dir = " + dir);
     	if (dir == null)
     		dir = rc.getLocation().directionTo(mapCentre);
+    	if (dir == null)
+    		dir = randomDirection();
     	
 		for (int i=0; i<20; i++) {
 			if (rc.canBuildRobot(type, dir)) {
@@ -486,7 +489,7 @@ public strictfp class RobotPlayer {
                 }
 
 	            //See if we can plant a tree this turn
-                if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved()) {
+                if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved() && rc.getTeamBullets() >= 99) {
                 	for (int currentSpoke=0; currentSpoke<spokes.length; currentSpoke++) {               
                 		if (plantFrom[currentSpoke] != null && rc.canMove(plantFrom[currentSpoke]) && !rc.isCircleOccupiedExceptByThisRobot(treeCentre[currentSpoke], GameConstants.BULLET_TREE_RADIUS)) {
                 			rc.move(plantFrom[currentSpoke]);
@@ -749,7 +752,7 @@ public strictfp class RobotPlayer {
             
         	if (nearestDanger.getType() == RobotType.LUMBERJACK || (nearestLumberjack != null && myLocation.distanceTo(nearestLumberjack.getLocation()) < safeDistance)) {
         		debug(2, "Keeping at range from enemy lumberjack" + nearestLumberjack);
-            	combatPosition = nearestLumberjack.getLocation().add(nearestLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(45), safeDistance);
+            	combatPosition = nearestLumberjack.getLocation().add(nearestLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
         	} else if (nearestTree != null) { //Scouts can hide in trees
             	float dist = nearestTree.radius-RobotType.SCOUT.bodyRadius - GameConstants.BULLET_SPAWN_OFFSET / 2;
             	debug(2, "Hiding in tree " + nearestTree + " target = " + nearestDanger);
@@ -765,16 +768,16 @@ public strictfp class RobotPlayer {
         		if (rc.getType().canAttack())
         			safeDistance += t.strideRadius + t.bulletSpeed + GameConstants.BULLET_SPAWN_OFFSET;
         		
-        		combatPosition = dangerLoc.add(dangerLoc.directionTo(myLocation).rotateLeftDegrees(45), safeDistance);
+        		combatPosition = dangerLoc.add(dangerLoc.directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
         	} else {
             	debug(2, "Running from " + nearestDanger);
             	RobotType t = nearestDanger.getType();
             	safeDistance = t.sensorRadius + rc.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET;
-            	combatPosition = nearestDanger.getLocation().add(nearestDanger.getLocation().directionTo(myLocation).rotateLeftDegrees(45), safeDistance);    	
+            	combatPosition = nearestDanger.getLocation().add(nearestDanger.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);    	
         	}
         } else if (nearestAllyLumberjack != null && nearestEnemy != null && myLocation.distanceTo(nearestAllyLumberjack.getLocation()) < safeDistance) {
     		debug(2, "Keeping at range from our lumberjack" + nearestAllyLumberjack);
-        	combatPosition = nearestAllyLumberjack.getLocation().add(nearestAllyLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(45), safeDistance);
+        	combatPosition = nearestAllyLumberjack.getLocation().add(nearestAllyLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
     	} else { //Not in danger so close with best enemy target
         	RobotInfo target = null;
 
@@ -784,7 +787,7 @@ public strictfp class RobotPlayer {
         		target = nearestArchon;
         	if (target != null) {
         		debug(2, "Safe: Closing on " + target);
-        		combatPosition = target.getLocation().add(target.getLocation().directionTo(myLocation).rotateLeftDegrees(45), rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET);
+        		combatPosition = target.getLocation().add(target.getLocation().directionTo(myLocation).rotateLeftDegrees(5), rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET);
         	}
         }
         
@@ -863,7 +866,7 @@ public strictfp class RobotPlayer {
     
     static void moveTowards(RobotInfo target) throws GameActionException {
     	MapLocation here = rc.getLocation();
-    	Direction dir = target.getLocation().directionTo(here).rotateRightDegrees(45);
+    	Direction dir = target.getLocation().directionTo(here).rotateRightDegrees(5);
     	float dist = rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS / 2;
     	
     	moveTo(target.getLocation().add(dir, dist));
@@ -1293,6 +1296,8 @@ public strictfp class RobotPlayer {
     			if (nearest <= rc.getType().bodyRadius)
     				damage += b.getDamage();
     		}
+    		if (Clock.getBytecodesLeft() < 2000)
+    			break;
     	}
 
     	return damage;
