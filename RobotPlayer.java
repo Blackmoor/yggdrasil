@@ -5,15 +5,13 @@ import battlecode.common.*;
 /*
  * Todo list
  * 
- * Implement a simple pathfinding algorithm to a given location
- * Find a way to make use of broadcast data from the enemy
  * Units that move out of sensor range could be followed
+ * Manage bullet counts better
+ * Build a lumberjack before a tree if there are trees to chop and no lumberjacks in sight
  */
 public strictfp class RobotPlayer {
 	static final int debugLevel = 0; // 0 = off, 1 = function calls, 2 = logic, 3/4 = detailed info
-	static final boolean indicatorsOn = false;
-	static final float fireThreshold = 1 + GameConstants.BULLET_TREE_COST; //Ensure we have enough bullets to build a tree
-	
+	static final boolean indicatorsOn = false;	
     static RobotController rc;
     static MapLocation mapCentre;
     static RobotInfo[] robots; //Cached result from senseNearbyRobots
@@ -89,13 +87,35 @@ public strictfp class RobotPlayer {
     		System.out.println(str);
     }
     
+    static float unitStrength(RobotType type) {
+    	if (type.bulletSpeed > 0)
+    		return type.attackPower;
+    	if (type == RobotType.LUMBERJACK)
+    		return 1;
+    	return 0;
+    }
+    
     static void sense() throws GameActionException {
     	robots = rc.senseNearbyRobots();
     	trees = rc.senseNearbyTrees();
     	bullets = rc.senseNearbyBullets();
     	overrideDanger = false;
-    	RobotInfo enemy = findNearestRobot(null, rc.getTeam().opponent());
-    	if (enemy != null) {
+    	
+    	float enemyStrength = 0;
+    	float allyStrength = 0;
+    	
+    	RobotInfo enemy = null;
+    	for (RobotInfo r: robots) {
+    		if (r.getTeam() == rc.getTeam()) {
+    			allyStrength += unitStrength(r.getType());
+    		} else {
+    			if (enemy == null)
+    				enemy = r;
+    			enemyStrength += unitStrength(r.getType());
+    		}
+    	}
+
+    	if (enemy != null && (allyStrength < 2 || allyStrength < enemyStrength)) {
     		help(enemy.getLocation());
     	} else {
     		checkHelp();
@@ -115,29 +135,42 @@ public strictfp class RobotPlayer {
     	}
     }
     
+    /*
+     * Broadcast data
+     * 0 - set to round num that we broadcast for help (or cancel help)
+     * 1 - 1 = goto location (at 2, 3), 0 = cancelled
+     * 2 = x location (int part)
+     * 3 = y location (int part)
+     */
+    
     static void help(MapLocation here) throws GameActionException {
     	int round = rc.readBroadcast(0);
-    	if (round == rc.getRoundNum()) //Someone else called for help this turn
+    	int rally = rc.readBroadcast(1);
+    	if (round == rc.getRoundNum() && rally > 0) //Someone else called for help this turn
     		return;
     	
     	rc.broadcast(0, rc.getRoundNum());
-    	rc.broadcast(1, (int)here.x);
-    	rc.broadcast(2, (int)here.y);
+    	rc.broadcast(1, 1);
+    	rc.broadcastFloat(2, here.x);
+    	rc.broadcastFloat(3, here.y);
+    	rallyPoint = here;
     	debug(4, "Calling for help " + here);
     	setIndicator(here, 0, 0, 255);
     }
     
     static void cancelHelp() throws GameActionException {
-    	rc.broadcast(0, 0);
+    	rc.broadcast(0, rc.getRoundNum());
+    	rc.broadcast(1, 0);
     	rallyPoint = null;
     	debug(4, "Cancelling help");
     }
     
     static void checkHelp() throws GameActionException {
     	int round = rc.readBroadcast(0);
-    	if (round > 0) {
+    	int rally = rc.readBroadcast(1);
+    	if (rally > 0) {
     		if (rc.getRoundNum() - round < 50) { //Current help
-    			rallyPoint = new MapLocation(rc.readBroadcast(1), rc.readBroadcast(2));
+    			rallyPoint = new MapLocation(rc.readBroadcastFloat(2), rc.readBroadcastFloat(3));
     			if (rc.canSenseLocation(rallyPoint)) {
     				RobotInfo enemy = findNearestRobot(null, rc.getTeam().opponent());
     				if (enemy == null)
@@ -146,8 +179,13 @@ public strictfp class RobotPlayer {
     		} else {
     			cancelHelp();
     		}
-    	} else {
-    		rallyPoint = null;
+    	} else if (rc.getRoundNum() - round > 1) {
+    		//See if someone has broadcast as it wasn't us!
+    		MapLocation[] broadcast = rc.senseBroadcastingRobotLocations();
+    		if (broadcast.length > 0)
+    			help(broadcast[0]);
+    		else
+    			rallyPoint = null;
     	}
     }
     
@@ -236,45 +274,72 @@ public strictfp class RobotPlayer {
     }
     
     /*
+     * There is one archon that is the prime one - it gets to spend all of the initial bullets
+     * The prime is the archon nearest the enemy and is assigned on turn 1
+     */
+    static boolean amIPrime() {
+    	MapLocation[] me = rc.getInitialArchonLocations(rc.getTeam());
+    	MapLocation[] them = rc.getInitialArchonLocations(rc.getTeam().opponent());
+    	
+    	float nearest = 1000;
+    	MapLocation prime = null;
+    	for (MapLocation m: me) {
+    		for (MapLocation t:them) {
+    			if (m.distanceTo(t) < nearest) {
+    				nearest = m.distanceTo(t);
+    				prime = m;
+    			}
+    		}
+    	}
+    	
+    	return (prime == rc.getLocation());
+    }
+    
+    /*
      * The Archon creates new gardeners and acts as the arbiter for what we build
      * It should avoid bullets and can shake trees
      * If it is the last (or only) archon it tries really hard to stay alive
      */
     static void runArchon() throws GameActionException {
-        debug(1, "I'm an archon!");
-        boolean prime = false;
-        
-        // The code you want your robot to perform every round should be in this loop
-        while (true) {        	
-            // Try/catch blocks stop unhandled exceptions, which cause your robot to explode
-            try {
+        // Try/catch blocks stop unhandled exceptions, which cause your robot to explode
+        try {
+	    	boolean prime = amIPrime();
+	    	
+	    	if (prime) {
+	    		debug(1, "I'm the prime archon!");
+			} else {
+		        debug(1, "I'm an archon!");
+			}
+	        
+	        // The code you want your robot to perform every round should be in this loop
+	        while (true) {        	
+
             	checkWin();
             	sense();
             	checkShake();
             	
-            	if (rc.getRoundNum() == 1) {
-            		if (rc.getTeamBullets() == GameConstants.BULLETS_INITIAL_AMOUNT) {
-	            		prime = true;
-	            		debug(1, "I am the prime Archon");
-	            		tryMove(mapCentre);
-            		} else {
-            			prime = false;
-            		}
-            	}
+            	if (rc.getRoundNum() == 2 && rc.getTeamBullets() >= GameConstants.BULLETS_INITIAL_AMOUNT) //Check to see if the prime failed to build and take over
+            		prime = true;
             	
             	RobotInfo nearestGardener = findNearestRobot(RobotType.GARDENER, rc.getTeam());
+            	RobotInfo nearestEnemy = findNearestRobot(null, rc.getTeam().opponent());
+            	float resourcesNeeded = RobotType.GARDENER.bulletCost;
             	
-            	if (((prime && rc.getRoundNum() == 1) || rc.getRoundNum() > 25) && rc.getTeamBullets() > 150 && nearestGardener == null) {
+            	if (nearestEnemy != null)
+            		resourcesNeeded += RobotType.SOLDIER.bulletCost;
+            	
+            	if (((prime && rc.getRoundNum() <= 2) || rc.getRoundNum() > 25) && rc.getTeamBullets() >= resourcesNeeded && nearestGardener == null) {
 	                Direction dir = rc.getLocation().directionTo(mapCentre);
 	                if (dir == null)
 	                	dir = randomDirection();
 
-                	for (int i=0; i<20; i++) {
+	                int directionsToTry = 60; //We have plenty of time to try building and in a confined place - options are good
+                	for (int i=0; i<directionsToTry; i++) {
     	                if (rc.canHireGardener(dir)) {
     	                	rc.hireGardener(dir);
     	                    break;
     	                }
-            			dir = dir.rotateLeftRads((float)Math.PI*2/20);
+            			dir = dir.rotateLeftRads((float)Math.PI*2/directionsToTry);
             		}	                    
                 }
             	
@@ -282,11 +347,10 @@ public strictfp class RobotPlayer {
 
                 // Clock.yield() makes the robot wait until the next turn, then it will perform this loop again
                 Clock.yield();
-
-            } catch (Exception e) {
-                debug(1, "Archon Exception");
-                e.printStackTrace();
-            }
+	        }
+        } catch (Exception e) {
+            debug(1, "Archon Exception");
+            e.printStackTrace();
         }
     }
 
@@ -370,76 +434,67 @@ public strictfp class RobotPlayer {
                 	wander();
             	}
             	
-                //Check to see if we want to build anything
-                if (rc.isBuildReady()) {
-                	//If there are trees in sight that are not ours - build a lumberjack if there isn't one nearby
-	                int lumberjacks = 0;
-	                int scouts = 0; // Number of enemy scouts
-                	int numTrees = 0;
-                	int defenders = 0;
-                	for (TreeInfo t:trees) {
-                		if (t.getTeam() != me) {
-                			numTrees++;
-                		}
-                	}
-	                
-                	RobotInfo nearestEnemy = null;
-	                for (RobotInfo r: robots) {
-	                	if (r.getTeam() != me) {
-	                		if (nearestEnemy == null)
-	                			nearestEnemy = r;
-	                		if (r.getType() == RobotType.SCOUT)
-	                			scouts++;
-	                	} else {
-	                		if (r.getType() == RobotType.LUMBERJACK)
-	                			lumberjacks++;
-	                		else if (r.getType() == RobotType.SOLDIER || r.getType() == RobotType.TANK)
-	                			defenders++;
-	                	}
-	                }
-	                
-	                if (rc.hasRobotBuildRequirements(RobotType.SCOUT) && !scoutBuilt) {
-	                	//Move to centre and build a scout
-	                	tryMove(buildLoc);
-                		scoutBuilt = buildIt(RobotType.SCOUT, buildDir);
-	                }
+            	int defenders = 0;
+                int lumberjacks = 0;
+                int scouts = 0; // Number of enemy scouts
+            	int numTrees = 0;
+
+            	for (TreeInfo t:trees) {
+            		if (t.getTeam() != me) {
+            			numTrees++;
+            		}
+            	}
                 
+            	RobotInfo nearestEnemy = null;
+                for (RobotInfo r: robots) {
+                	if (r.getTeam() != me) {
+                		if (nearestEnemy == null)
+                			nearestEnemy = r;
+                		if (r.getType() == RobotType.SCOUT)
+                			scouts++;
+                	} else {
+                		if (r.getType() == RobotType.LUMBERJACK)
+                			lumberjacks++;
+                		else if (r.getType() == RobotType.SOLDIER || r.getType() == RobotType.TANK)
+                			defenders++;
+                	}
+                }
+            	
+                //Check to see if we want to build anything
+                if (rc.isBuildReady()) {	                
 	                if (defenders == 0) {
 	                	if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.TANK)) {
-		                	//Move to centre and build a tank
 	                		tryMove(buildLoc);
 	                		buildIt(RobotType.TANK, buildDir);
 	                	}
 	                	
 	                	if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.SOLDIER)) {
-		                	//Move to centre and build a soldier
 	            			tryMove(buildLoc);
 	                		buildIt(RobotType.SOLDIER, buildDir);
 	                	}
 	                }
 	                
-	                if (rc.hasRobotBuildRequirements(RobotType.LUMBERJACK) && rc.isBuildReady()) {
-	                	if (numTrees > lumberjacks || scouts > lumberjacks) {
-                			//Move to centre and build
-	                		tryMove(buildLoc);
-                			buildIt(RobotType.LUMBERJACK, buildDir);
-	                	}
+	                if (rc.hasRobotBuildRequirements(RobotType.SCOUT) && !scoutBuilt) {
+	                	tryMove(buildLoc);
+                		scoutBuilt = buildIt(RobotType.SCOUT, buildDir);
+	                }
+	                
+	                if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.LUMBERJACK) && (numTrees > lumberjacks || scouts > lumberjacks)) {
+                		tryMove(buildLoc);
+            			buildIt(RobotType.LUMBERJACK, buildDir);
 	                }
                 }
-	                
+
 	            //See if we can plant a tree this turn
-                //Only do this if we have some defence in place
-                if (centre != null) {
-	                if (rc.hasTreeBuildRequirements() && !rc.hasMoved()) {
-	                	for (int currentSpoke=0; currentSpoke<spokes.length; currentSpoke++) {               
-	                		if (plantFrom[currentSpoke] != null && rc.canMove(plantFrom[currentSpoke]) && !rc.isCircleOccupiedExceptByThisRobot(treeCentre[currentSpoke], GameConstants.BULLET_TREE_RADIUS)) {
-	                			rc.move(plantFrom[currentSpoke]);
-	                			if (rc.getLocation() == plantFrom[currentSpoke] && rc.canPlantTree(spokes[currentSpoke])) {
-	                				rc.plantTree(spokes[currentSpoke]);
-	                			}
-	                			break;
-	                		}
-		                }
+                if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved()) {
+                	for (int currentSpoke=0; currentSpoke<spokes.length; currentSpoke++) {               
+                		if (plantFrom[currentSpoke] != null && rc.canMove(plantFrom[currentSpoke]) && !rc.isCircleOccupiedExceptByThisRobot(treeCentre[currentSpoke], GameConstants.BULLET_TREE_RADIUS)) {
+                			rc.move(plantFrom[currentSpoke]);
+                			if (rc.getLocation() == plantFrom[currentSpoke] && rc.canPlantTree(spokes[currentSpoke])) {
+                				rc.plantTree(spokes[currentSpoke]);
+                			}
+                			break;
+                		}
 	                }
                 }
                 
@@ -449,7 +504,7 @@ public strictfp class RobotPlayer {
                 if (rc.canWater()) {
 	                TreeInfo waterMe = null;
 	                for (TreeInfo t:trees) { //Find tree most in need of water  
-                		if (rc.canWater(t.getID()) && (waterMe == null || (t.getHealth() < waterMe.getHealth())))
+                		if (t.getTeam() == rc.getTeam() && rc.canWater(t.getID()) && (waterMe == null || (t.getHealth() < waterMe.getHealth())))
                 			waterMe = t;
 	                }
 	                if (waterMe != null)
@@ -478,7 +533,7 @@ public strictfp class RobotPlayer {
 		
 		float ammo = rc.getTeamBullets();
 		
-		if (target == null || rc.getAttackCount() > 0 || ammo < fireThreshold || (target.getType() == RobotType.ARCHON && ammo < 500))
+		if (target == null || rc.getAttackCount() > 0 || (target.getType() == RobotType.ARCHON && ammo < 500) || (rc.getRoundNum() > 200 && ammo < GameConstants.BULLET_TREE_COST + 10))
 			return;
 		
 		MapLocation targetLoc = target.getLocation();
@@ -561,12 +616,10 @@ public strictfp class RobotPlayer {
                 		turnsToWander--;
                 	
                 	if (rallyPoint != null && turnsToWander == 0) {
-                		if (!tryMove(rallyPoint)) //We failed to move so wander for a while
-                			turnsToWander = 10;
-	                	else if (rc.getType() == RobotType.TANK && rc.getLocation() == here) {
-	                    	if (trees.length > 0 && trees[0].getTeam() == rc.getTeam())
-	                    		turnsToWander = 10;
-	                    }
+                		if (wallMode)
+                			wallMove(rallyPoint);
+                		else if (!tryMove(rallyPoint) || (rc.getType() == RobotType.TANK && rc.getLocation() == here && trees.length > 0 && trees[0].getTeam() == rc.getTeam()))
+		                    engageWallMode(rallyPoint);
                 	}
                 	wander();
                 }
@@ -634,14 +687,6 @@ public strictfp class RobotPlayer {
     	return true;
     }
     
-    static boolean canDamage() {
-    	if (!rc.getType().canAttack())
-    		return false;
-    	if (rc.getType() == RobotType.LUMBERJACK)
-    		return true;
-    	return (rc.getTeamBullets() > fireThreshold);
-    }
-    
     /*
      * ManageCombat
      * 
@@ -701,10 +746,10 @@ public strictfp class RobotPlayer {
 	            	}
 	            }
             }
-                         	               	
+            
         	if (nearestDanger.getType() == RobotType.LUMBERJACK || (nearestLumberjack != null && myLocation.distanceTo(nearestLumberjack.getLocation()) < safeDistance)) {
         		debug(2, "Keeping at range from enemy lumberjack" + nearestLumberjack);
-            	combatPosition = nearestLumberjack.getLocation().add(nearestLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
+            	combatPosition = nearestLumberjack.getLocation().add(nearestLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(45), safeDistance);
         	} else if (nearestTree != null) { //Scouts can hide in trees
             	float dist = nearestTree.radius-RobotType.SCOUT.bodyRadius - GameConstants.BULLET_SPAWN_OFFSET / 2;
             	debug(2, "Hiding in tree " + nearestTree + " target = " + nearestDanger);
@@ -712,23 +757,24 @@ public strictfp class RobotPlayer {
             		combatPosition = nearestTree.getLocation().add(nearestTree.getLocation().directionTo(dangerLoc),dist);
             	else
             		combatPosition = nearestTree.getLocation().add(nearestTree.getLocation().directionTo(dangerLoc).opposite(),-dist);	                		
-        	} else if (canBeat(nearestDanger) && canDamage()) {
+        	} else if (canBeat(nearestDanger)) {
+        		RobotType t = nearestDanger.getType();
         		debug(2, "Can Win: Closing on " + nearestDanger);
         		overrideDanger = true;
-        		safeDistance = rc.getType().bodyRadius + nearestDanger.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET;
-        		if (rc.getType() == RobotType.SCOUT)
-        			safeDistance += rc.getType().bulletSpeed; //Since we can only fire 1 bullet no point getting closer
+        		safeDistance = rc.getType().bodyRadius + t.bodyRadius + GameConstants.BULLET_SPAWN_OFFSET;
+        		if (rc.getType().canAttack())
+        			safeDistance += t.strideRadius + t.bulletSpeed + GameConstants.BULLET_SPAWN_OFFSET;
         		
-        		combatPosition = dangerLoc.add(dangerLoc.directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
+        		combatPosition = dangerLoc.add(dangerLoc.directionTo(myLocation).rotateLeftDegrees(45), safeDistance);
         	} else {
             	debug(2, "Running from " + nearestDanger);
             	RobotType t = nearestDanger.getType();
-            	safeDistance = t.strideRadius + t.bulletSpeed + t.bodyRadius + GameConstants.BULLET_SPAWN_OFFSET + GameConstants.BULLET_SPAWN_OFFSET/2;
-            	combatPosition = nearestDanger.getLocation().add(nearestDanger.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);    	
+            	safeDistance = t.sensorRadius + rc.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET;
+            	combatPosition = nearestDanger.getLocation().add(nearestDanger.getLocation().directionTo(myLocation).rotateLeftDegrees(45), safeDistance);    	
         	}
         } else if (nearestAllyLumberjack != null && nearestEnemy != null && myLocation.distanceTo(nearestAllyLumberjack.getLocation()) < safeDistance) {
     		debug(2, "Keeping at range from our lumberjack" + nearestAllyLumberjack);
-        	combatPosition = nearestAllyLumberjack.getLocation().add(nearestAllyLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
+        	combatPosition = nearestAllyLumberjack.getLocation().add(nearestAllyLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(45), safeDistance);
     	} else { //Not in danger so close with best enemy target
         	RobotInfo target = null;
 
@@ -738,10 +784,10 @@ public strictfp class RobotPlayer {
         		target = nearestArchon;
         	if (target != null) {
         		debug(2, "Safe: Closing on " + target);
-        		combatPosition = target.getLocation().add(target.getLocation().directionTo(myLocation).rotateLeftDegrees(5), rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET);
+        		combatPosition = target.getLocation().add(target.getLocation().directionTo(myLocation).rotateLeftDegrees(45), rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET);
         	}
         }
-        	
+        
         if (combatPosition != null) {
         	tryMove(combatPosition);
         }
@@ -799,8 +845,8 @@ public strictfp class RobotPlayer {
                 		wander();
                 	} else {
                 		if (rc.getLocation().distanceTo(archons[(archon_to_visit+nearest)%archons.length]) < rc.getType().strideRadius)
-	                		archon_to_visit++;
-	                	tryMove(archons[(archon_to_visit+nearest)%archons.length]);
+	                		archon_to_visit++;             		
+	                	moveTo(archons[(archon_to_visit+nearest)%archons.length]);
 	                	debug(2, "Moving to next archon " + archons[(archon_to_visit+nearest)%archons.length]);
                 	}
                 }
@@ -817,10 +863,10 @@ public strictfp class RobotPlayer {
     
     static void moveTowards(RobotInfo target) throws GameActionException {
     	MapLocation here = rc.getLocation();
-    	Direction dir = target.getLocation().directionTo(here).rotateRightDegrees(5);
+    	Direction dir = target.getLocation().directionTo(here).rotateRightDegrees(45);
     	float dist = rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS / 2;
     	
-    	tryMove(target.getLocation().add(dir, dist));
+    	moveTo(target.getLocation().add(dir, dist));
     }
 
     static void runLumberjack() throws GameActionException {
@@ -847,7 +893,7 @@ public strictfp class RobotPlayer {
                 }
                 
                 local = rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
-                if (local.length > 0) {
+                if (local.length > 0 && local.length > rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, me).length) {
                     // Use strike() to hit all nearby robots!
                     rc.strike();
                 }
@@ -878,11 +924,15 @@ public strictfp class RobotPlayer {
 	            		if (rc.canChop(best.getID())) {
 	            			rc.chop(best.getID());
 	            			chopped = true;
-	            		} else { //Move to best to chop something if we can
+	            		} else { //Move to best and chop something if we can
+	            			Boolean blocked = false;
 	            			Direction dir = rc.getLocation().directionTo(best.getLocation());
 	            			float dist = rc.getLocation().distanceTo(best.getLocation()) - best.getRadius() - RobotType.LUMBERJACK.bodyRadius;
 	            			MapLocation chopLoc = rc.getLocation().add(dir, dist);
-	            			tryMove(chopLoc);
+	            			if (wallMode)
+	            				wallMove(chopLoc);
+	            			else
+	            				blocked = !tryMove(chopLoc);
 	            			
 	            			if (bestTrapped != null && rc.canChop(bestTrapped.getID())) {
 	                			rc.chop(bestTrapped.getID());
@@ -894,6 +944,8 @@ public strictfp class RobotPlayer {
 	                			rc.chop(bestNeutral.getID());
 	                			chopped = true;
 	            			}
+	            			if (blocked && !chopped)
+	            	    		engageWallMode(chopLoc);
 	            		}
 	            	}
             	}
@@ -911,11 +963,11 @@ public strictfp class RobotPlayer {
                     }
                     
                     if (!rc.hasAttacked()) {
-	                    robots = rc.senseNearbyRobots(GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
-	                    if (robots.length > 0) {
+	                    local = rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
+	                    if (local.length > 0 && local.length > rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, me).length) {
 	                        // Use strike() to hit all nearby robots!
 	                        rc.strike();
-	                    }
+	                    }	                   
                     }
                 }
 
@@ -976,18 +1028,26 @@ public strictfp class RobotPlayer {
     		}
     	}
   	
+    	float bullets = bulletDamage(loc);
+    	if (bullets > 0) {
+    		setIndicator(loc, 255, 0, 0);
+    		damage += bullets;
+    	}
+    	
     	if (!overrideDanger) {
 	    	Team enemy = rc.getTeam().opponent();
+	    	float startDamage = damage;
 	    	for (RobotInfo r:robots) {
 	    		if (r.getTeam() == enemy && r.getType().bulletSpeed > 0) { //Only care about robots that can shoot
 	    			float dist = r.getLocation().distanceTo(loc) - rc.getType().bodyRadius;
 	        		float range = r.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET + r.getType().bulletSpeed + r.getType().strideRadius;
 	        		if (range >= dist) {
-	        			setIndicator(loc, 128, 0, 0);
 	        			damage += r.getType().attackPower;
 	        		}
 	    		}
 	    	}
+	    	if (damage > startDamage)
+    			setIndicator(loc, 128, 0, 0);
     	}
     	
     	if (damage == 0)
@@ -1005,6 +1065,15 @@ public strictfp class RobotPlayer {
      * and if the tree damaged is one of ours we try another direction
      */
     static Direction wanderDir = null;
+    static boolean wallMode = false;
+    static boolean followLeft = true;
+    
+    static boolean moveTo(MapLocation dest) throws GameActionException {
+    	if (wallMode)
+    		return wallMove(dest);
+    	else
+    		return tryMove(dest);
+    }
     
     static void wander() throws GameActionException {
     	if (wanderDir == null)
@@ -1015,7 +1084,7 @@ public strictfp class RobotPlayer {
     	
     	debug(2, "Wandering");
     	MapLocation here = rc.getLocation();
-    	if (!tryMove(rc.getLocation().add(wanderDir, rc.getType().strideRadius), 0, 0)) {
+    	if (!tryMove(rc.getLocation().add(wanderDir, rc.getType().strideRadius), 0, 0, 0)) {
         	wanderDir = randomDirection();
         } else if (rc.getType() == RobotType.TANK && rc.getLocation() == here) {
         	if (trees.length > 0 && trees[0].getTeam() == rc.getTeam())
@@ -1031,7 +1100,7 @@ public strictfp class RobotPlayer {
      * @throws GameActionException
      */
     static boolean tryMove(MapLocation to) throws GameActionException {
-        return tryMove(to,20,5);
+        return tryMove(to, 22, 4, 4);
     }
 
     /**
@@ -1043,7 +1112,7 @@ public strictfp class RobotPlayer {
      * @return true if a move was performed
      * @throws GameActionException
      */
-    static boolean tryMove(MapLocation to, float degreeOffset, int checksPerSide) throws GameActionException {	
+    static boolean tryMove(MapLocation to, float degreeOffset, int checksLeft, int checksRight) throws GameActionException {	
     	if (rc.hasMoved() || to == null)
     		return false;    	
         
@@ -1072,6 +1141,7 @@ public strictfp class RobotPlayer {
         		bestUnsafe = dest;
         	}
         	if (damage == 0) {
+        		wanderDir = here.directionTo(dest);
 	            rc.move(dest);
 	            setIndicator(here, dest, 0, 255, 0);
 	            return true;
@@ -1080,52 +1150,153 @@ public strictfp class RobotPlayer {
     	
         // Now try a bunch of similar angles
         int currentCheck = 1;
+        int checksPerSide = Math.max(checksLeft, checksRight);
+        
+        debug(3, "tryMove: checking " + checksPerSide + " locations (" + checksLeft + " left and " + checksRight + " right)");
 
         while(currentCheck<=checksPerSide) {
             // Try the offset of the left side
-        	dest = here.add(dir.rotateLeftDegrees(degreeOffset*currentCheck), dist);
-        	if (rc.canMove(dest)) {
-        		damage = isLocationSafe(dest);
-            	if (damage > 0 && damage < leastDamage) {
-            		leastDamage = damage;
-            		bestUnsafe = dest;
-            	}
-            	if (damage == 0) {
-    	            rc.move(dest);
-    	            setIndicator(here, dest, 0, 255, 0);
-    	            return true;
-            	}
-            }
+        	if (currentCheck <= checksLeft) {
+	        	dest = here.add(dir.rotateLeftDegrees(degreeOffset*currentCheck), dist);
+	        	if (rc.canMove(dest)) {
+	        		damage = isLocationSafe(dest);
+	            	if (damage > 0 && damage < leastDamage) {
+	            		leastDamage = damage;
+	            		bestUnsafe = dest;
+	            	}
+	            	if (damage == 0) {
+	            		wanderDir = here.directionTo(dest);
+	    	            rc.move(dest);
+	    	            setIndicator(here, dest, 0, 255, 0);
+	    	            return true;
+	            	}
+	            }
+        	}
 
             // Try the offset on the right side
-            dest = here.add(dir.rotateRightDegrees(degreeOffset*currentCheck), dist);
-            if (rc.canMove(dest)) {
-            	damage = isLocationSafe(dest);
-            	if (damage > 0 && damage < leastDamage) {
-            		leastDamage = damage;
-            		bestUnsafe = dest;
-            	}
-            	if (damage == 0) {
-    	            rc.move(dest);
-    	            setIndicator(here, dest, 0, 255, 0);
-    	            return true;
-            	}
-            }
+        	if (currentCheck <= checksRight) {
+	            dest = here.add(dir.rotateRightDegrees(degreeOffset*currentCheck), dist);
+	            if (rc.canMove(dest)) {
+	            	damage = isLocationSafe(dest);
+	            	if (damage > 0 && damage < leastDamage) {
+	            		leastDamage = damage;
+	            		bestUnsafe = dest;
+	            	}
+	            	if (damage == 0) {
+	            		wanderDir = here.directionTo(dest);
+	    	            rc.move(dest);
+	    	            setIndicator(here, dest, 0, 255, 0);
+	    	            return true;
+	            	}
+	            }
+        	}
             // No move performed, try slightly further
             currentCheck++;
         }
         
         if (bestUnsafe != null && leastDamage <= isLocationSafe(here) && rc.canMove(bestUnsafe)) { //Not safe here so happy to move to another unsafe place
+        	wanderDir = here.directionTo(bestUnsafe);
         	rc.move(bestUnsafe);
-        	setIndicator(here, dest, 255, 0, 0);
+        	setIndicator(here, bestUnsafe, 255, 0, 0);
         	return true;
         }
 
         // A move never happened, so return false.
         return false;
     }
+    
+    static void engageWallMode(MapLocation target) {
+    	wallMode = true;
+    	followLeft = (wanderDir.radiansBetween(rc.getLocation().directionTo(target)) > 0);
+    }
+    
+    /*
+     * WallMove attempts to follow an obstacle until we are around it
+     */
+    static boolean wallMove(MapLocation dest) throws GameActionException { 	
+    	//Find nearest object blocking on the side we are following - a tree, robot or edge of map
+    	MapLocation blocker = null;
+    	float distance = 0;
+    	if (trees.length > 0 && robots.length > 0) {
+    		//Work out which is nearest
+    		if (rc.getLocation().distanceTo(trees[0].getLocation()) - trees[0].getRadius() < rc.getLocation().distanceTo(robots[0].getLocation()) - robots[0].getType().bodyRadius) { //Tree is nearer
+    			blocker = trees[0].getLocation();
+    			distance = rc.getLocation().distanceTo(trees[0].getLocation()) - trees[0].getRadius();
+    		} else {
+    			blocker = robots[0].getLocation();
+    			distance = rc.getLocation().distanceTo(robots[0].getLocation()) - robots[0].getType().bodyRadius;
+    		}
+    	} else if (trees.length > 0) {
+    		blocker = trees[0].getLocation();
+    		distance = rc.getLocation().distanceTo(trees[0].getLocation()) - trees[0].getRadius();
+		} else if (robots.length > 0) {
+			blocker = robots[0].getLocation();
+			distance = rc.getLocation().distanceTo(robots[0].getLocation()) - robots[0].getType().bodyRadius;
+		}
 
- 
+    	//Check to see if the edge of the map is nearer
+		Direction dir = Direction.NORTH;
+		int count = 0;
+		float testDistance = distance;
+		if (testDistance > rc.getType().sensorRadius - rc.getType().bodyRadius)
+			testDistance = rc.getType().sensorRadius - rc.getType().bodyRadius;
+		while (count < 4) {
+    		MapLocation edge = rc.getLocation().add(dir, testDistance);
+    		if (!rc.onTheMap(edge, rc.getType().bodyRadius)) {
+    			blocker = edge;
+    			break;
+    		}
+    		dir = dir.rotateLeftDegrees(90);
+    		count++;
+		}
+    	
+    	if (blocker != null) {
+	    	if (followLeft)
+	    		wanderDir = rc.getLocation().directionTo(blocker).rotateRightDegrees(90);
+	    	else
+	    		wanderDir = rc.getLocation().directionTo(blocker).rotateLeftDegrees(90);
+    	}
+    	
+    	float diff = Math.abs(wanderDir.radiansBetween(rc.getLocation().directionTo(dest)));
+		MapLocation towards = rc.getLocation().add(wanderDir, rc.getType().strideRadius);
+    	setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir, 3), 128, 128, 128);
+    	
+    	if (diff > Math.PI/8) {
+    		if (followLeft) { //Keep the wall on our left
+	    		setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir.rotateLeftDegrees(90)), 255, 128, 128);
+	    		return tryMove(towards, 20, 0, 12);
+    		} else {
+    			setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir.rotateRightDegrees(90)), 255, 128, 128);
+	    		return tryMove(towards, 20, 12, 0);
+    		}
+    	} else {
+    		//We can head towards real destination safely
+    		debug(0, "Leaving wall mode");
+    		wallMode = false;
+    		return tryMove(dest);
+    	}
+    }
+
+    /*
+     * Returns the bullet damage at this location
+     */
+    static float bulletDamage(MapLocation loc) {
+    	float damage = 0;
+    	
+    	for (BulletInfo b:bullets) {
+    		//Will the bullet hit us?
+    		//Calc nearest point this bullet gets to us
+    		float angle = Math.abs(b.getLocation().directionTo(loc).radiansBetween(b.getDir()));
+    		if (angle < Math.PI / 2) {
+        		float hypot = b.getLocation().distanceTo(loc);
+    			float nearest = (float) (hypot * Math.sin(angle));
+    			if (nearest <= rc.getType().bodyRadius)
+    				damage += b.getDamage();
+    		}
+    	}
+
+    	return damage;
+    }
     
     /*
      * Code copied from server to calculate if a bullet will hit an object
