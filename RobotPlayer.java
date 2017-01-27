@@ -491,7 +491,7 @@ public strictfp class RobotPlayer {
 	            //See if we can plant a tree this turn
                 if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved() && rc.getTeamBullets() >= 75) {
                 	for (int currentSpoke=0; currentSpoke<spokes.length; currentSpoke++) {               
-                		if (plantFrom[currentSpoke] != null && rc.canMove(plantFrom[currentSpoke]) && !rc.isCircleOccupiedExceptByThisRobot(treeCentre[currentSpoke], GameConstants.BULLET_TREE_RADIUS)) {
+                		if (plantFrom[currentSpoke] != null && canMove(plantFrom[currentSpoke]) && !rc.isCircleOccupiedExceptByThisRobot(treeCentre[currentSpoke], GameConstants.BULLET_TREE_RADIUS)) {
                 			rc.move(plantFrom[currentSpoke]);
                 			if (rc.getLocation() == plantFrom[currentSpoke] && rc.canPlantTree(spokes[currentSpoke])) {
                 				rc.plantTree(spokes[currentSpoke]);
@@ -670,6 +670,9 @@ public strictfp class RobotPlayer {
      * That means there has to be room and there is no attacking robot with its stride distance since a shot fired adjacent to a tree could hit us in the tree
      */
     static boolean isTreeSafe(TreeInfo t) throws GameActionException {
+    	if (Clock.getBytecodesLeft() < 1000) //This routine can take time so return false if we are short on time
+    		return false;
+    	
     	RobotInfo[] near = rc.senseNearbyRobots(t.getLocation(), t.getRadius()+3, null);
     	for (RobotInfo r: near) {
     		if (r.getLocation().distanceTo(t.getLocation()) < t.getRadius() + r.getType().bodyRadius) { //Occupied
@@ -1067,7 +1070,7 @@ public strictfp class RobotPlayer {
      * Since tanks can move onto trees - tryMove could return true but we haven't actually moved so we check
      * and if the tree damaged is one of ours we try another direction
      */
-    static Direction wanderDir = null;
+    static Direction wanderDir = randomDirection();
     static boolean wallMode = false;
     static boolean followLeft = true;
     
@@ -1079,9 +1082,6 @@ public strictfp class RobotPlayer {
     }
     
     static void wander() throws GameActionException {
-    	if (wanderDir == null)
-    		wanderDir = randomDirection();
-    	
     	if (rc.hasMoved())
     		return;
     	
@@ -1104,6 +1104,28 @@ public strictfp class RobotPlayer {
      */
     static boolean tryMove(MapLocation to) throws GameActionException {
         return tryMove(to, 22, 4, 4);
+    }
+    
+    /*
+     * Checks to see if we can move here
+     * Uses rc.canMove and then performs extra checks for a TANK unit as we don't want to destroy our own trees
+     */
+    static boolean canMove(MapLocation dest) throws GameActionException {
+    	float dist = rc.getLocation().distanceTo(dest);
+        if(dist > rc.getType().strideRadius) {
+            Direction dir = rc.getLocation().directionTo(dest);
+            dest = rc.getLocation().add(dir, rc.getType().strideRadius);
+        }
+        
+    	if (!rc.canMove(dest))
+    		return false;
+    	if (rc.getType() == RobotType.TANK) {
+    		TreeInfo[] bump = rc.senseNearbyTrees(dest, RobotType.TANK.bodyRadius, rc.getTeam());
+    		if (bump.length > 0)
+    			return false;
+    	}
+    	
+    	return true;
     }
 
     /**
@@ -1137,7 +1159,7 @@ public strictfp class RobotPlayer {
     	float damage;
     	
         // First, try intended direction
-        if (rc.canMove(dest)) {
+        if (canMove(dest)) {
         	damage = isLocationSafe(dest);
         	if (damage > 0 && damage < leastDamage) {
         		leastDamage = damage;
@@ -1161,7 +1183,7 @@ public strictfp class RobotPlayer {
             // Try the offset of the left side
         	if (currentCheck <= checksLeft) {
 	        	dest = here.add(dir.rotateLeftDegrees(degreeOffset*currentCheck), dist);
-	        	if (rc.canMove(dest)) {
+	        	if (canMove(dest)) {
 	        		damage = isLocationSafe(dest);
 	            	if (damage > 0 && damage < leastDamage) {
 	            		leastDamage = damage;
@@ -1179,7 +1201,7 @@ public strictfp class RobotPlayer {
             // Try the offset on the right side
         	if (currentCheck <= checksRight) {
 	            dest = here.add(dir.rotateRightDegrees(degreeOffset*currentCheck), dist);
-	            if (rc.canMove(dest)) {
+	            if (canMove(dest)) {
 	            	damage = isLocationSafe(dest);
 	            	if (damage > 0 && damage < leastDamage) {
 	            		leastDamage = damage;
@@ -1197,7 +1219,7 @@ public strictfp class RobotPlayer {
             currentCheck++;
         }
         
-        if (bestUnsafe != null && leastDamage <= isLocationSafe(here) && rc.canMove(bestUnsafe)) { //Not safe here so happy to move to another unsafe place
+        if (bestUnsafe != null && leastDamage <= isLocationSafe(here) && canMove(bestUnsafe)) { //Not safe here so happy to move to another unsafe place
         	wanderDir = here.directionTo(bestUnsafe);
         	rc.move(bestUnsafe);
         	setIndicator(here, bestUnsafe, 255, 0, 0);
@@ -1220,21 +1242,52 @@ public strictfp class RobotPlayer {
     	//Find nearest object blocking on the side we are following - a tree, robot or edge of map
     	MapLocation blocker = null;
     	float distance = 0;
-    	if (trees.length > 0 && robots.length > 0) {
+    	TreeInfo wallTree = null; // This is the "wall" we are following
+    	float treeDist = 20;
+    	RobotInfo wallRobot = null;
+    	float robotDist = 20;
+    	
+		for (TreeInfo t:trees) {
+			distance = rc.getLocation().distanceTo(t.getLocation()) - t.getRadius();
+			if (distance > treeDist)
+				break;
+			float angle = wanderDir.radiansBetween(rc.getLocation().directionTo(t.getLocation()));
+			if ((followLeft && angle >= 0) || (!followLeft && angle <= 0)) {
+				treeDist = distance;
+				wallTree = t;
+			}
+		}
+		
+		for (RobotInfo r:robots) {
+			distance = rc.getLocation().distanceTo(r.getLocation()) - r.getType().bodyRadius;
+			if (distance > robotDist)
+				break;
+			float angle = wanderDir.radiansBetween(rc.getLocation().directionTo(r.getLocation()));
+			if ((followLeft && angle >= 0) || (!followLeft && angle <= 0)) {
+				robotDist = distance;
+				wallRobot = r;
+			}
+		}
+		
+    	if (wallTree != null && wallRobot != null) {
     		//Work out which is nearest
-    		if (rc.getLocation().distanceTo(trees[0].getLocation()) - trees[0].getRadius() < rc.getLocation().distanceTo(robots[0].getLocation()) - robots[0].getType().bodyRadius) { //Tree is nearer
-    			blocker = trees[0].getLocation();
-    			distance = rc.getLocation().distanceTo(trees[0].getLocation()) - trees[0].getRadius();
+    		if (treeDist < robotDist) { //Tree is nearer
+    			blocker = wallTree.getLocation();
+    			distance = treeDist;
+    			setIndicator(rc.getLocation(), wallTree.getLocation(), 0, 0, 0);
     		} else {
-    			blocker = robots[0].getLocation();
-    			distance = rc.getLocation().distanceTo(robots[0].getLocation()) - robots[0].getType().bodyRadius;
+    			blocker = wallRobot.getLocation();
+    			distance = robotDist;
+    			setIndicator(rc.getLocation(), wallRobot.getLocation(), 0, 0, 0);
     		}
-    	} else if (trees.length > 0) {
-    		blocker = trees[0].getLocation();
-    		distance = rc.getLocation().distanceTo(trees[0].getLocation()) - trees[0].getRadius();
-		} else if (robots.length > 0) {
-			blocker = robots[0].getLocation();
-			distance = rc.getLocation().distanceTo(robots[0].getLocation()) - robots[0].getType().bodyRadius;
+    	} else if (wallTree != null) {
+    		blocker = wallTree.getLocation();
+			distance = treeDist;
+			setIndicator(rc.getLocation(), wallTree.getLocation(), 0, 0, 0);
+		} else if (wallRobot != null) {
+			blocker = wallRobot.getLocation();
+			distance = robotDist;
+			setIndicator(rc.getLocation(), wallRobot.getLocation(), 0, 0, 0);
 		}
 
     	//Check to see if the edge of the map is nearer
@@ -1246,8 +1299,11 @@ public strictfp class RobotPlayer {
 		while (count < 4) {
     		MapLocation edge = rc.getLocation().add(dir, testDistance);
     		if (!rc.onTheMap(edge, rc.getType().bodyRadius)) {
-    			blocker = edge;
-    			break;
+    			float angle = wanderDir.radiansBetween(dir);
+    			if ((followLeft && angle >= 0) || (!followLeft && angle <= 0)) {
+	    			blocker = edge;
+	    			break;
+    			}
     		}
     		dir = dir.rotateLeftDegrees(90);
     		count++;
@@ -1260,21 +1316,19 @@ public strictfp class RobotPlayer {
 	    		wanderDir = rc.getLocation().directionTo(blocker).rotateLeftDegrees(90);
     	}
     	
-    	float diff = Math.abs(wanderDir.radiansBetween(rc.getLocation().directionTo(dest)));
-		MapLocation towards = rc.getLocation().add(wanderDir, rc.getType().strideRadius);
+    	float diff = Math.abs(wanderDir.radiansBetween(rc.getLocation().directionTo(dest)));		
     	setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir, 3), 128, 128, 128);
     	
     	if (diff > Math.PI/8) {
     		if (followLeft) { //Keep the wall on our left
-	    		setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir.rotateLeftDegrees(90)), 255, 128, 128);
-	    		return tryMove(towards, 20, 0, 12);
+    			MapLocation towards = rc.getLocation().add(wanderDir.rotateLeftDegrees(40), rc.getType().strideRadius);
+	    		return tryMove(towards, 20, 0, 14);
     		} else {
-    			setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir.rotateRightDegrees(90)), 255, 128, 128);
-	    		return tryMove(towards, 20, 12, 0);
+    			MapLocation towards = rc.getLocation().add(wanderDir.rotateRightDegrees(40), rc.getType().strideRadius);
+	    		return tryMove(towards, 20, 14, 0);
     		}
     	} else {
     		//We can head towards real destination safely
-    		debug(0, "Leaving wall mode");
     		wallMode = false;
     		return tryMove(dest);
     	}
