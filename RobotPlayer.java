@@ -10,7 +10,7 @@ import battlecode.common.*;
  */
 public strictfp class RobotPlayer {
 	static final int debugLevel = 0; // 0 = off, 1 = function calls, 2 = logic, 3/4 = detailed info
-	static final boolean indicatorsOn = true;	
+	static final boolean indicatorsOn = false;	
     static RobotController rc;
     static MapLocation mapCentre;
     static RobotInfo[] robots; //Cached result from senseNearbyRobots
@@ -257,7 +257,7 @@ public strictfp class RobotPlayer {
 					nearestUnit = r;
 					break;
 				}
-				if (r.getLocation().distanceTo(rc.getLocation()) > nearestHitTreeDist)
+				if (nearestHitTreeDist != -1 && r.getLocation().distanceTo(rc.getLocation()) > nearestHitTreeDist)
 					break;
 			}
     	} else {
@@ -275,7 +275,7 @@ public strictfp class RobotPlayer {
 					nearestTree = t;
 					break;
 				}
-				if (t.getLocation().distanceTo(rc.getLocation()) > nearestHitUnitDist)
+				if (nearestHitUnitDist != -1 && t.getLocation().distanceTo(rc.getLocation()) > nearestHitUnitDist)
 					break;					
 			}
     	}
@@ -580,7 +580,7 @@ public strictfp class RobotPlayer {
 	
 	/*
 	 * Track a bullet
-	 * Return 0 if is misses, 1 if it hits an enemy and -1 if it hits an ally
+	 * Return 0 if is misses, 1 if it hits an enemy, -1 if it hits an ally, -2 if it can be dodged
 	 */
 	static int processShot(Direction dir, RobotInfo target) {
 		float hitDist = hitDistance(rc.getLocation().add(dir, rc.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET), dir);
@@ -590,13 +590,25 @@ public strictfp class RobotPlayer {
 		if (hitDist < 0)
 			return -1;
 		
-		int turnsBeforeHit = (int) (hitDist / rc.getType().bulletSpeed);
+		int turnsBeforeHit = 1 + (int) (hitDist / rc.getType().bulletSpeed);
 		int turnsToDodge = (int) Math.ceil((target.getType().bodyRadius + 0.1f) / target.getType().strideRadius);
 		if (turnsBeforeHit <= turnsToDodge)
 			return 1;
-	
-		return 0; //Bullet will probably miss (can be dodged)
+		
+		return -2; //Bullet will probably miss (can be dodged)
 	}
+	
+	static boolean canShoot(RobotInfo target) {		
+		float ammo = rc.getTeamBullets();
+		if (rc.getAttackCount() > 0)
+			return false;
+		if (target.getType() == RobotType.ARCHON && ammo < 500)
+			return false;
+		if (rc.getRoundNum() > 200 && ammo < GameConstants.BULLET_TREE_COST + 10)
+			return false;
+		return true;
+	}
+
 	
 	/*
 	 * shoot works out the optimum fire pattern based on the size of the target and its distance from us then shoots
@@ -608,9 +620,7 @@ public strictfp class RobotPlayer {
 	static void shoot(RobotInfo target) throws GameActionException {
 		debug(1, "Shooting at " + target);
 		
-		float ammo = rc.getTeamBullets();
-		
-		if (target == null || rc.getAttackCount() > 0 || (target.getType() == RobotType.ARCHON && ammo < 500) || (rc.getRoundNum() > 200 && ammo < GameConstants.BULLET_TREE_COST + 10))
+		if (target == null || !canShoot(target))
 			return;
 		
 		MapLocation targetLoc = target.getLocation();
@@ -620,25 +630,47 @@ public strictfp class RobotPlayer {
     	int singleHits = 0;
     	int triadHits = 0;
     	int pentadHits = 0;
+		int single = 0;
     	
-    	debug(0, "shoot - time left = " + Clock.getBytecodesLeft());
+    	debug(2, "shoot - time left = " + Clock.getBytecodesLeft());
     	if (rc.canFireSingleShot()) {
-    		singleHits += processShot(dir, target);
+    		single = processShot(dir, target);
+    		if (single != -2)
+    			singleHits = single;
     	}
     	
     	if (rc.canFireTriadShot()) {
     		triadHits = singleHits;
-    		triadHits += processShot(dir.rotateLeftDegrees(GameConstants.TRIAD_SPREAD_DEGREES), target);
-    		triadHits += processShot(dir.rotateRightDegrees(GameConstants.TRIAD_SPREAD_DEGREES), target);
+    		int left = processShot(dir.rotateLeftDegrees(GameConstants.TRIAD_SPREAD_DEGREES), target);
+    		if (left != -2)
+    			triadHits += left;
+    		int right = processShot(dir.rotateRightDegrees(GameConstants.TRIAD_SPREAD_DEGREES), target);
+    		if (right != -2)
+    			triadHits += right;
+    		if (single == -2 && left == 0 && right == 0 && dist <= target.getType().bodyRadius / Math.sin(Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES/2)))
+    			triadHits++;
     	}
     	
     	if (rc.canFirePentadShot()) {
     		pentadHits = singleHits;
-    		pentadHits += processShot(dir.rotateLeftDegrees(GameConstants.PENTAD_SPREAD_DEGREES), target);
-    		pentadHits += processShot(dir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES), target);
-    		pentadHits += processShot(dir.rotateLeftDegrees(GameConstants.PENTAD_SPREAD_DEGREES*2), target);
-    		pentadHits += processShot(dir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES*2), target);
+    		int left = processShot(dir.rotateLeftDegrees(GameConstants.PENTAD_SPREAD_DEGREES), target);
+    		if (left != -2)
+    			pentadHits += left;
+    		int right = processShot(dir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES), target);
+    		if (right != -2)
+    			pentadHits += right;
+    		if (single == -2 && left == 0 && right == 0 && dist <= target.getType().bodyRadius / Math.sin(Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES/2)))
+    			pentadHits++;
+
+    		left = processShot(dir.rotateLeftDegrees(GameConstants.PENTAD_SPREAD_DEGREES*2), target);
+    		if (left != -2)
+    			pentadHits += left;
+    		right = processShot(dir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES*2), target);
+    		if (right != -2)
+    			pentadHits += right;
     	}
+    	
+    	debug(2, "Single hits = " + singleHits + " Triad = " + triadHits + " Pentad = " + pentadHits);
     	
     	if (pentadHits > 0 && pentadHits > triadHits && pentadHits > singleHits) {
     		rc.firePentadShot(dir);
@@ -655,7 +687,7 @@ public strictfp class RobotPlayer {
     	} else {
     		debug(2, "Not shooting at " + target + " dist=" + dist);
     	}
-    	debug(0, "shoot done - time left = " + Clock.getBytecodesLeft());
+    	debug(2, "shoot done - time left = " + Clock.getBytecodesLeft());
 	}
 	
     static void runCombat() throws GameActionException {
@@ -837,12 +869,11 @@ public strictfp class RobotPlayer {
         	} else if (nearestDanger.getType() == RobotType.LUMBERJACK || (nearestLumberjack != null && myLocation.distanceTo(nearestLumberjack.getLocation()) < safeDistance)) {
         		debug(2, "Keeping at range from enemy lumberjack" + nearestLumberjack);
             	combatPosition = nearestLumberjack.getLocation().add(nearestLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
-        	} else if (canBeat(nearestDanger)) {
+        	} else if (canShoot(nearestDanger) && canBeat(nearestDanger)) {
         		RobotType t = nearestDanger.getType();
         		debug(2, "Can Win: Closing on " + nearestDanger);
         		overrideDanger = true;
-
-        		
+       		
     			TreeInfo tr = null;
     			if (rc.canSenseLocation(nearestDanger.getLocation()))
     				tr = rc.senseTreeAtLocation(nearestDanger.getLocation());
@@ -856,9 +887,7 @@ public strictfp class RobotPlayer {
     				} else {
     					combatPosition = tr.getLocation().add(tr.getLocation().directionTo(nearestDanger.getLocation()), safeDistance);
     				}
-    			}
-        		
-        		
+    			}       		
         	} else {
             	debug(2, "Running from " + nearestDanger);
             	RobotType t = nearestDanger.getType();
@@ -882,6 +911,7 @@ public strictfp class RobotPlayer {
         }
         
         if (combatPosition != null) {
+        	wallMode = false;
         	tryMove(combatPosition);
         }
         
@@ -968,9 +998,9 @@ public strictfp class RobotPlayer {
     static void moveTowards(RobotInfo target) throws GameActionException {
     	MapLocation here = rc.getLocation();
     	Direction dir = target.getLocation().directionTo(here).rotateRightDegrees(5);
-    	float dist = rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS / 2;
+    	float dist = target.getType().bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS / 2;
     	
-    	moveTo(target.getLocation().add(dir, dist));
+    	tryMove(target.getLocation().add(dir, dist));
     }
 
     static void runLumberjack() throws GameActionException {
@@ -992,8 +1022,10 @@ public strictfp class RobotPlayer {
             	else
             		overrideDanger = false;
             	
+            	debug(2, "Nearest enemy = " + nearestEnemy + " can beat = " + overrideDanger);
+            	
             	// See if there are any enemy robots within striking range - we only attack enemies we can beat - otherwise we retreat
-            	if (damageAtLocation(rc.getLocation()) > 0 || (nearestEnemy != null && !overrideDanger)) {
+            	if (damageAtLocation(rc.getLocation()) > 0 && !overrideDanger) {
             		wallMode = false;
             		MapLocation away = null;
             		if (nearestEnemy == null) { //Nothing in sight - must be bullets
@@ -1001,16 +1033,20 @@ public strictfp class RobotPlayer {
             		} else {
             			away = rc.getLocation().add(nearestEnemy.getLocation().directionTo(rc.getLocation()), RobotType.LUMBERJACK.strideRadius);
             		}
+            		debug(2, "Dodging to safety");
             		tryMove(away, 18, 10, 10);
-            	} else if (nearestEnemy != null) {
+            	} else if (nearestEnemy != null) { //We can beat it so close and attack
             		float distance = rc.getLocation().distanceTo(nearestEnemy.getLocation());
-	                if (distance > RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS) {
+            		debug(2, "Moving towards " + nearestEnemy + " current distance = " + distance);
+	                if (distance > GameConstants.LUMBERJACK_STRIKE_RADIUS + nearestEnemy.getType().bodyRadius) {
+	                	debug(2, "Moving towards " + nearestEnemy);
 	                	moveTowards(nearestEnemy);
 	                }
 	                
-	                RobotInfo[] local = rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
-	                if (local.length > 0 && local.length > rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, me).length) {
+	                RobotInfo[] local = rc.senseNearbyRobots(GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
+	                if (local.length > 0) {
 	                    // Use strike() to hit all nearby robots!
+	                	debug(2, "Striking at " + local.length + " enemies");
 	                    rc.strike();
 	                }
             	}
@@ -1067,27 +1103,10 @@ public strictfp class RobotPlayer {
 	            	}
             	}
             	
-                if (!rc.hasMoved()) {
-                    // No close robots, so search for robots within sight radius
-                    RobotInfo target = findNearestRobot(null, enemy);
-
-                    // If there is a robot, move towards it
-                    if(target != null && canBeat(target)) {
-                        moveTowards(target);
-                    }
-                    if (!chopped) {
-                        wander();
-                    }
-                    
-                    if (!rc.hasAttacked()) {
-	                    RobotInfo[] local = rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
-	                    if (local.length > 0 && local.length > rc.senseNearbyRobots(RobotType.LUMBERJACK.bodyRadius + GameConstants.LUMBERJACK_STRIKE_RADIUS, me).length) {
-	                        // Use strike() to hit all nearby robots!
-	                        rc.strike();
-	                    }	                   
-                    }
+                if (!rc.hasMoved() && !chopped) {
+                	wander();
                 }
-
+                
                 // Clock.yield() makes the robot wait until the next turn, then it will perform this loop again
                 Clock.yield();
 
@@ -1197,12 +1216,11 @@ public strictfp class RobotPlayer {
     		return;
     	
     	debug(2, "Wandering");
-    	MapLocation here = rc.getLocation();
+    	if (wanderDir == null)
+    		wanderDir = randomDirection();
+
     	if (!tryMove(rc.getLocation().add(wanderDir, rc.getType().strideRadius), 0, 0, 0)) {
         	wanderDir = randomDirection();
-        } else if (rc.getType() == RobotType.TANK && rc.getLocation() == here) {
-        	if (trees.length > 0 && trees[0].getTeam() == rc.getTeam())
-        		wanderDir = randomDirection();
         }
     }
     
@@ -1409,8 +1427,8 @@ public strictfp class RobotPlayer {
 		Direction dir = Direction.NORTH;
 		int count = 0;
 		float testDistance = distance;
-		if (testDistance > rc.getType().sensorRadius - rc.getType().bodyRadius)
-			testDistance = rc.getType().sensorRadius - rc.getType().bodyRadius;
+		if (testDistance > rc.getType().sensorRadius - rc.getType().bodyRadius - GameConstants.BULLET_SPAWN_OFFSET)
+			testDistance = rc.getType().sensorRadius - rc.getType().bodyRadius - GameConstants.BULLET_SPAWN_OFFSET;
 		while (count < 4) {
     		MapLocation edge = rc.getLocation().add(dir, testDistance);
     		if (!rc.onTheMap(edge, rc.getType().bodyRadius)) {
@@ -1465,7 +1483,7 @@ public strictfp class RobotPlayer {
     			if (nearest <= rc.getType().bodyRadius)
     				damage += b.getDamage();
     		}
-    		if (Clock.getBytecodesLeft() < 2000)
+    		if (Clock.getBytecodesLeft() < 3500)
     			break;
     	}
 
