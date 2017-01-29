@@ -235,27 +235,52 @@ public strictfp class RobotPlayer {
      * If it does return the distance to the enemy otherwise return -100 for a miss or minus the distance for an ally hit
      */
     static float hitDistance(MapLocation loc, Direction dir) {
-    	//Check each tree to see if it will hit it - record the nearest tree that we hit
     	TreeInfo nearestTree = null;
     	float nearestHitTreeDist = -1;
-
-		for (TreeInfo t:trees) {
-			nearestHitTreeDist = calcHitDist(loc, loc.add(dir, rc.getType().sensorRadius*2), t.getLocation(), t.getRadius());
-			if (nearestHitTreeDist >= 0) {
-				nearestTree = t;
-				break;
-			}
-		}
-
 		RobotInfo nearestUnit = null;
 		float nearestHitUnitDist = -1;
-		for (RobotInfo r:robots) {
-			nearestHitUnitDist = calcHitDist(loc, loc.add(dir, rc.getType().sensorRadius*2), r.getLocation(), r.getRadius());
-			if (nearestHitUnitDist >= 0) {
-				nearestUnit = r;
-				break;
+		
+    	//Optimise speed by checking smallest list first then pass in the distance to the other list as break point   	
+    	if (trees.length < robots.length) {
+	    	//Check each tree to see if it will hit it
+			for (TreeInfo t:trees) {
+				nearestHitTreeDist = calcHitDist(loc, loc.add(dir, rc.getType().sensorRadius*2), t.getLocation(), t.getRadius());
+				if (nearestHitTreeDist >= 0) {
+					nearestTree = t;
+					break;
+				}
 			}
-		}
+			
+			for (RobotInfo r:robots) {
+				nearestHitUnitDist = calcHitDist(loc, loc.add(dir, rc.getType().sensorRadius*2), r.getLocation(), r.getRadius());
+				if (nearestHitUnitDist >= 0) {
+					nearestUnit = r;
+					break;
+				}
+				if (r.getLocation().distanceTo(rc.getLocation()) > nearestHitTreeDist)
+					break;
+			}
+    	} else {
+			for (RobotInfo r:robots) {
+				nearestHitUnitDist = calcHitDist(loc, loc.add(dir, rc.getType().sensorRadius*2), r.getLocation(), r.getRadius());
+				if (nearestHitUnitDist >= 0) {
+					nearestUnit = r;
+					break;
+				}
+			}
+			
+			for (TreeInfo t:trees) {
+				nearestHitTreeDist = calcHitDist(loc, loc.add(dir, rc.getType().sensorRadius*2), t.getLocation(), t.getRadius());
+				if (nearestHitTreeDist >= 0) {
+					nearestTree = t;
+					break;
+				}
+				if (t.getLocation().distanceTo(rc.getLocation()) > nearestHitUnitDist)
+					break;					
+			}
+    	}
+		
+		debug(2, "Shot from " + loc + " dir = " + dir + " will hit unit " + nearestUnit + " at distance " + nearestHitUnitDist + " and tree " + nearestTree + " at distance " + nearestHitTreeDist);
 		
 		if (nearestUnit != null && (nearestTree == null || nearestHitUnitDist <= nearestHitTreeDist)) { //We hit a robot
 			if (nearestUnit.getTeam() != rc.getTeam())
@@ -518,7 +543,7 @@ public strictfp class RobotPlayer {
                 }
 
 	            //See if we can plant a tree this turn
-                if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved() && rc.getTeamBullets() >= 75) {
+                if (centre != null && (nearestEnemy == null || defenders > 0) && rc.hasTreeBuildRequirements() && !rc.hasMoved()) {
                 	for (int currentSpoke=0; currentSpoke<spokes.length; currentSpoke++) {               
                 		if (plantFrom[currentSpoke] != null && canMove(plantFrom[currentSpoke]) && !rc.isCircleOccupiedExceptByThisRobot(treeCentre[currentSpoke], GameConstants.BULLET_TREE_RADIUS)) {
                 			rc.move(plantFrom[currentSpoke]);
@@ -565,7 +590,9 @@ public strictfp class RobotPlayer {
 		if (hitDist < 0)
 			return -1;
 		
-		if ((int) (hitDist / rc.getType().bulletSpeed) <= target.getType().bodyRadius / target.getType().strideRadius)
+		int turnsBeforeHit = (int) (hitDist / rc.getType().bulletSpeed);
+		int turnsToDodge = (int) Math.ceil((target.getType().bodyRadius + 0.1f) / target.getType().strideRadius);
+		if (turnsBeforeHit <= turnsToDodge)
 			return 1;
 	
 		return 0; //Bullet will probably miss (can be dodged)
@@ -594,6 +621,7 @@ public strictfp class RobotPlayer {
     	int triadHits = 0;
     	int pentadHits = 0;
     	
+    	debug(0, "shoot - time left = " + Clock.getBytecodesLeft());
     	if (rc.canFireSingleShot()) {
     		singleHits += processShot(dir, target);
     	}
@@ -612,11 +640,11 @@ public strictfp class RobotPlayer {
     		pentadHits += processShot(dir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES*2), target);
     	}
     	
-    	if (pentadHits > triadHits) {
+    	if (pentadHits > 0 && pentadHits > triadHits && pentadHits > singleHits) {
     		rc.firePentadShot(dir);
     		bullets = rc.senseNearbyBullets();
     		debug(2, "Shooting 5 shots at " + target);
-    	} else if (triadHits > singleHits) {
+    	} else if (triadHits > 0 && triadHits > singleHits) {
     		rc.fireTriadShot(dir);
     		bullets = rc.senseNearbyBullets();
     		debug(2, "Shooting 3 shots at " + target);
@@ -627,6 +655,7 @@ public strictfp class RobotPlayer {
     	} else {
     		debug(2, "Not shooting at " + target + " dist=" + dist);
     	}
+    	debug(0, "shoot done - time left = " + Clock.getBytecodesLeft());
 	}
 	
     static void runCombat() throws GameActionException {
@@ -812,9 +841,24 @@ public strictfp class RobotPlayer {
         		RobotType t = nearestDanger.getType();
         		debug(2, "Can Win: Closing on " + nearestDanger);
         		overrideDanger = true;
-        		safeDistance = rc.getType().bodyRadius + t.bodyRadius; //Right up close and personal
+
         		
-        		combatPosition = dangerLoc.add(dangerLoc.directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
+    			TreeInfo tr = null;
+    			if (rc.canSenseLocation(nearestDanger.getLocation()))
+    				tr = rc.senseTreeAtLocation(nearestDanger.getLocation());
+    			if (tr == null) {
+            		safeDistance = rc.getType().bodyRadius + t.bodyRadius; //Right up close and personal
+            		combatPosition = dangerLoc.add(dangerLoc.directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
+    			} else { //Move to edge of tree closest to scout
+    				safeDistance = rc.getType().bodyRadius + tr.getRadius(); //edge of tree
+    				if (nearestDanger.getLocation() == tr.getLocation()) {    					
+                		combatPosition = dangerLoc.add(dangerLoc.directionTo(myLocation), safeDistance);
+    				} else {
+    					combatPosition = tr.getLocation().add(tr.getLocation().directionTo(nearestDanger.getLocation()), safeDistance);
+    				}
+    			}
+        		
+        		
         	} else {
             	debug(2, "Running from " + nearestDanger);
             	RobotType t = nearestDanger.getType();
@@ -1204,10 +1248,7 @@ public strictfp class RobotPlayer {
      * @return true if a move was performed
      * @throws GameActionException
      */
-    static boolean tryMove(MapLocation to, float degreeOffset, int checksLeft, int checksRight) throws GameActionException {	
-    	if (checksLeft == checksRight)
-    		wallMode = false;
-    	
+    static boolean tryMove(MapLocation to, float degreeOffset, int checksLeft, int checksRight) throws GameActionException {   	
     	if (rc.hasMoved() || to == null)
     		return false;    	
         
