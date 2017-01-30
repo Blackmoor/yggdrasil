@@ -7,7 +7,7 @@ import battlecode.common.*;
  * 
  * Units that move out of sensor range could be followed
  * Archons need to avoid edges and corners when moving
- * Scouts can run out of bytecodes when there are lots of trees
+ * Could broadcast good locations for gardeners
  */
 public strictfp class RobotPlayer {
 	static final int debugLevel = 0; // 0 = off, 1 = function calls, 2 = logic, 3/4 = detailed info
@@ -423,7 +423,6 @@ public strictfp class RobotPlayer {
         MapLocation treeCentre[] = new MapLocation[sides-2];
         Direction buildDir = null;
         MapLocation buildLoc = null;
-        MapLocation[] archons = rc.getInitialArchonLocations(rc.getTeam().opponent());
     	
         // The code you want your robot to perform every round should be in this loop
         while (true) {
@@ -473,6 +472,7 @@ public strictfp class RobotPlayer {
             	int defenders = 0;
                 int lumberjacks = 0;
                 int scouts = 0; // Number of enemy scouts
+                int enemies = 0; //Number of combat enemies
             	int chopTrees = 0;
             	int containerTrees = 0;
             	float shakeResources = 0;
@@ -496,6 +496,8 @@ public strictfp class RobotPlayer {
                 			nearestEnemy = r;
                 		if (r.getType() == RobotType.SCOUT)
                 			scouts++;
+                		if (r.getType().canAttack())
+                			enemies++;
                 	} else {
                 		if (r.getType() == RobotType.LUMBERJACK)
                 			lumberjacks++;
@@ -524,7 +526,7 @@ public strictfp class RobotPlayer {
                 		scoutBuilt = buildIt(RobotType.SCOUT, buildDir);
 	                }
                 		              	
-	                if (defenders == 0) {
+	                if (defenders == 0 || (enemies > 0 && enemies >= defenders)) {
 	                	if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.TANK)) {
 	                		tryMove(buildLoc);
 	                		buildIt(RobotType.TANK, buildDir);
