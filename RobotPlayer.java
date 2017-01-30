@@ -7,6 +7,7 @@ import battlecode.common.*;
  * 
  * Units that move out of sensor range could be followed
  * Archons need to avoid edges and corners when moving
+ * Scouts can run out of bytecodes when there are lots of trees
  */
 public strictfp class RobotPlayer {
 	static final int debugLevel = 0; // 0 = off, 1 = function calls, 2 = logic, 3/4 = detailed info
@@ -193,21 +194,19 @@ public strictfp class RobotPlayer {
     		return;
     	
     	//Check to see if there is a tree in range that we can shake
+    	//Head to the one with the most resources if we are a scout
+    	TreeInfo bestTree = null;
     	for (TreeInfo t:trees) {
     		if (t.getContainedBullets() > 0) {
     			if (rc.canShake(t.getID()))
 	    			rc.shake(t.getID());
-    			else {
-    				//If we are a scout then head here and try again
-    		    	if (rc.getType() == RobotType.SCOUT) {
-    		    		tryMove(t.getLocation());
-    		    		if (rc.canShake(t.getID()))
-    		    			rc.shake(t.getID());
-    		    	}
-    			}
-    			return;
+    			else if (rc.getType() == RobotType.SCOUT && (bestTree == null || t.getContainedBullets() > bestTree.getContainedBullets()))
+    				bestTree = t;
     		}
     	}
+    	
+    	if (bestTree != null)
+    		tryMove(bestTree.getLocation());
     }
     
     static RobotInfo findNearestRobot(RobotType type, Team team) {
@@ -424,6 +423,7 @@ public strictfp class RobotPlayer {
         MapLocation treeCentre[] = new MapLocation[sides-2];
         Direction buildDir = null;
         MapLocation buildLoc = null;
+        MapLocation[] archons = rc.getInitialArchonLocations(rc.getTeam().opponent());
     	
         // The code you want your robot to perform every round should be in this loop
         while (true) {
@@ -475,6 +475,7 @@ public strictfp class RobotPlayer {
                 int scouts = 0; // Number of enemy scouts
             	int chopTrees = 0;
             	int containerTrees = 0;
+            	float shakeResources = 0;
             	int myTrees = 0;
 
             	for (TreeInfo t:trees) {
@@ -484,6 +485,8 @@ public strictfp class RobotPlayer {
             			chopTrees++;
             		if (t.containedRobot != null)
             			containerTrees++;
+            		if (t.getContainedBullets() > 0)
+            			shakeResources += t.getContainedBullets();
             	}
                 
             	RobotInfo nearestEnemy = null;
@@ -502,8 +505,10 @@ public strictfp class RobotPlayer {
                 }
             	
                 //Check to see if we want to build anything
-                if (rc.isBuildReady()) {
-                	if (!lumberjackBuilt) {
+                if (rc.isBuildReady()) {               	
+                	//Sometimes we only have room for 1 unit so we need it to be a lumberjack to clear space
+                	//Other times there are free units in nearby trees
+                	if (!lumberjackBuilt && chopTrees > 0) {
 	                	int buildLocations = countBuildOptions(buildDir);
 	                	
 	                	if (buildLocations <= 1 || containerTrees > 0) { //We need a lumberjack as a priority
@@ -514,6 +519,11 @@ public strictfp class RobotPlayer {
 	                	}
                 	}
                 	
+            		if (shakeResources > RobotType.SCOUT.bulletCost && rc.hasRobotBuildRequirements(RobotType.SCOUT) && !scoutBuilt) {
+	                	tryMove(buildLoc);
+                		scoutBuilt = buildIt(RobotType.SCOUT, buildDir);
+	                }
+                		              	
 	                if (defenders == 0) {
 	                	if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.TANK)) {
 	                		tryMove(buildLoc);
@@ -533,8 +543,9 @@ public strictfp class RobotPlayer {
 	                
 	                if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.LUMBERJACK) && (chopTrees > lumberjacks || scouts > lumberjacks)) {
                 		tryMove(buildLoc);
-            			buildIt(RobotType.LUMBERJACK, buildDir);
+            			lumberjackBuilt = buildIt(RobotType.LUMBERJACK, buildDir);
 	                }
+
                 }
 
 	            //See if we can plant a tree this turn
@@ -603,8 +614,7 @@ public strictfp class RobotPlayer {
 			return false;
 		if (target.getType() == RobotType.ARCHON && ammo < 500)
 			return false;
-		//if (rc.getRoundNum() > 200 && ammo < GameConstants.BULLET_TREE_COST + 10)
-		//	return false;
+
 		return (ammo >= 1);
 	}
 
@@ -696,7 +706,6 @@ public strictfp class RobotPlayer {
 	
     static void runCombat() throws GameActionException {
         debug(1, "I'm a combatant!");
-        int turnsToWander = 0;
 
         // The code you want your robot to perform every round should be in this loop
         while (true) {       	
@@ -706,17 +715,9 @@ public strictfp class RobotPlayer {
             	sense();
             	checkShake();
                 boolean stay = manageCombat();
-                if (!stay) {
-                	MapLocation here = rc.getLocation();
-                	
-                	if (turnsToWander > 0)
-                		turnsToWander--;
-                	
-                	if (rallyPoint != null && turnsToWander == 0) {
-                		if (wallMode)
-                			wallMove(rallyPoint);
-                		else if (!tryMove(rallyPoint) || (rc.getType() == RobotType.TANK && rc.getLocation() == here && trees.length > 0 && trees[0].getTeam() == rc.getTeam()))
-		                    engageWallMode(rallyPoint);
+                if (!stay) {   	
+                	if (rallyPoint != null) {
+                		moveTo(rallyPoint);
                 	}
                 	wander();
                 }
@@ -856,7 +857,7 @@ public strictfp class RobotPlayer {
             TreeInfo nearestTree = null;
             
             if (rc.getType() == RobotType.SCOUT) {
-            	TreeInfo[] near = rc.senseNearbyTrees(dangerLoc, -1, null);
+            	TreeInfo[] near = rc.senseNearbyTrees(dangerLoc, 3, null);
 	            for (TreeInfo t:near) {
 	            	if (isTreeSafe(t)) {
 	            		nearestTree = t;
@@ -918,7 +919,7 @@ public strictfp class RobotPlayer {
         }
         
         if (combatPosition != null) {
-        	wallMode = false;
+        	disengageWallMode();
         	tryMove(combatPosition);
         }
         
@@ -987,7 +988,7 @@ public strictfp class RobotPlayer {
                 	} else {
                 		if (rc.getLocation().distanceTo(archons[(archon_to_visit+nearest)%archons.length]) < rc.getType().strideRadius)
 	                		archon_to_visit++;             		
-	                	moveTo(archons[(archon_to_visit+nearest)%archons.length]);
+	                	tryMove(archons[(archon_to_visit+nearest)%archons.length]);
 	                	debug(2, "Moving to next archon " + archons[(archon_to_visit+nearest)%archons.length]);
                 	}
                 }
@@ -1033,7 +1034,7 @@ public strictfp class RobotPlayer {
             	
             	// See if there are any enemy robots within striking range - we only attack enemies we can beat - otherwise we retreat
             	if (damageAtLocation(rc.getLocation()) > 0 && !overrideDanger) {
-            		wallMode = false;
+            		disengageWallMode();
             		MapLocation away = null;
             		if (nearestEnemy == null) { //Nothing in sight - must be bullets
             			away = rc.getLocation().add(randomDirection(), RobotType.LUMBERJACK.strideRadius);
@@ -1085,14 +1086,10 @@ public strictfp class RobotPlayer {
 	            			rc.chop(best.getID());
 	            			chopped = true;
 	            		} else { //Move to best and chop something if we can
-	            			Boolean blocked = false;
 	            			Direction dir = rc.getLocation().directionTo(best.getLocation());
 	            			float dist = rc.getLocation().distanceTo(best.getLocation()) - best.getRadius() - RobotType.LUMBERJACK.bodyRadius;
 	            			MapLocation chopLoc = rc.getLocation().add(dir, dist);
-	            			if (wallMode)
-	            				wallMove(chopLoc);
-	            			else
-	            				blocked = !tryMove(chopLoc);
+	            			moveTo(chopLoc);
 	            			
 	            			if (bestTrapped != null && rc.canChop(bestTrapped.getID())) {
 	                			rc.chop(bestTrapped.getID());
@@ -1104,8 +1101,9 @@ public strictfp class RobotPlayer {
 	                			rc.chop(bestNeutral.getID());
 	                			chopped = true;
 	            			}
-	            			if (blocked && !chopped)
-	            	    		engageWallMode(chopLoc);
+	            			
+	            			if (chopped)
+	            				disengageWallMode();
 	            		}
 	            	}
             	}
@@ -1214,8 +1212,12 @@ public strictfp class RobotPlayer {
     static boolean moveTo(MapLocation dest) throws GameActionException {
     	if (wallMode)
     		return wallMove(dest);
-    	else
-    		return tryMove(dest);
+    	else {
+    		boolean moved = tryMove(dest);
+    		if (!moved)
+    			engageWallMode(dest);
+    		return moved;
+    	}
     }
     
     static void wander() throws GameActionException {
@@ -1371,6 +1373,10 @@ public strictfp class RobotPlayer {
     	followLeft = (wanderDir.radiansBetween(rc.getLocation().directionTo(target)) > 0);
     }
     
+    static void disengageWallMode() {
+    	wallMode = false;
+    }
+    
     /*
      * WallMove attempts to follow an obstacle until we are around it
      */
@@ -1469,7 +1475,7 @@ public strictfp class RobotPlayer {
     		}
     	} else {
     		//We can head towards real destination safely
-    		wallMode = false;
+    		disengageWallMode();
     		return tryMove(dest);
     	}
     }
