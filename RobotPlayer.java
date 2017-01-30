@@ -416,6 +416,7 @@ public strictfp class RobotPlayer {
         final int sides = 9;
         final float buildDist = (float) (1 / Math.sin(Math.PI/sides)) - RobotType.GARDENER.bodyRadius - GameConstants.BULLET_TREE_RADIUS;
     	boolean scoutBuilt = false;
+    	boolean lumberjackBuilt = false;
     	boolean movedAway = false;
     	MapLocation centre = null;
     	Direction spokes[] = new Direction[sides-2];
@@ -502,13 +503,15 @@ public strictfp class RobotPlayer {
             	
                 //Check to see if we want to build anything
                 if (rc.isBuildReady()) {
-                	int buildLocations = countBuildOptions(buildDir);
-                	
-                	if (buildLocations <= 1 || (containerTrees > 0 && lumberjacks == 0)) { //We need a lumberjack as a priority
-                		if (rc.hasRobotBuildRequirements(RobotType.LUMBERJACK)) {
-                			tryMove(buildLoc);
-                			buildIt(RobotType.LUMBERJACK, buildDir);
-                		}
+                	if (!lumberjackBuilt) {
+	                	int buildLocations = countBuildOptions(buildDir);
+	                	
+	                	if (buildLocations <= 1 || containerTrees > 0) { //We need a lumberjack as a priority
+	                		if (rc.hasRobotBuildRequirements(RobotType.LUMBERJACK)) {
+	                			tryMove(buildLoc);
+	                			lumberjackBuilt = buildIt(RobotType.LUMBERJACK, buildDir);
+	                		}
+	                	}
                 	}
                 	
 	                if (defenders == 0) {
