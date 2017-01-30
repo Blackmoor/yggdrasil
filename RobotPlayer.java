@@ -340,6 +340,8 @@ public strictfp class RobotPlayer {
             	
             	if (nearestEnemy != null)
             		resourcesNeeded += RobotType.SOLDIER.bulletCost;
+            	else
+            		resourcesNeeded += GameConstants.BULLET_TREE_COST;
             	
             	if (((prime && rc.getRoundNum() <= 2) || rc.getRoundNum() > 25) && rc.getTeamBullets() >= resourcesNeeded && nearestGardener == null) {
 	                Direction dir = rc.getLocation().directionTo(mapCentre);
@@ -502,8 +504,8 @@ public strictfp class RobotPlayer {
                 if (rc.isBuildReady()) {
                 	int buildLocations = countBuildOptions(buildDir);
                 	
-                	if (buildLocations <= 1 || containerTrees > 0) { //We need a lumberjack as a priority
-                		if (rc.hasRobotBuildRequirements(RobotType.LUMBERJACK) && numTrees > lumberjacks) {
+                	if (buildLocations <= 1 || (containerTrees > 0 && lumberjacks == 0)) { //We need a lumberjack as a priority
+                		if (rc.hasRobotBuildRequirements(RobotType.LUMBERJACK)) {
                 			tryMove(buildLoc);
                 			buildIt(RobotType.LUMBERJACK, buildDir);
                 		}
