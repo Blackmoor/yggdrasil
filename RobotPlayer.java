@@ -473,7 +473,7 @@ public strictfp class RobotPlayer {
             	int defenders = 0;
                 int lumberjacks = 0;
                 int scouts = 0; // Number of enemy scouts
-            	int numTrees = 0;
+            	int chopTrees = 0;
             	int containerTrees = 0;
             	int myTrees = 0;
 
@@ -481,7 +481,7 @@ public strictfp class RobotPlayer {
             		if (t.getTeam() == me)
             			myTrees++;
             		else
-            			numTrees++;
+            			chopTrees++;
             		if (t.containedRobot != null)
             			containerTrees++;
             	}
@@ -531,7 +531,7 @@ public strictfp class RobotPlayer {
                 		scoutBuilt = buildIt(RobotType.SCOUT, buildDir);
 	                }
 	                
-	                if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.LUMBERJACK) && (numTrees > lumberjacks || scouts > lumberjacks)) {
+	                if (rc.isBuildReady() && rc.hasRobotBuildRequirements(RobotType.LUMBERJACK) && (chopTrees > lumberjacks || scouts > lumberjacks)) {
                 		tryMove(buildLoc);
             			buildIt(RobotType.LUMBERJACK, buildDir);
 	                }
