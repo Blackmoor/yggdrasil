@@ -838,8 +838,11 @@ public strictfp class RobotPlayer {
         	}
         }
         
-        if (nearestEnemy == null)
+        if (nearestEnemy == null) { //There are no enemies in sight but we might be being shot at
+        	if (rc.getType() == RobotType.TANK)
+        		returnFire();
         	return false;
+        }
         
         if (rc.getType() == RobotType.SCOUT && damageAtLocation(rc.getLocation()) > 0) {
         	//We are better off dodging by moving away
@@ -1485,12 +1488,47 @@ public strictfp class RobotPlayer {
     		return tryMove(dest);
     	}
     }
+    
+    /*
+     * Look for incoming bullets and fire back at the one farthest from us that will hit us
+     * Only fire at soldier and scouts to ensure we don't fire at our own tanks in a friendly fire incident
+     */
+    static void returnFire() throws GameActionException {
+    	MapLocation loc = rc.getLocation();
+    	BulletInfo target = null;
+    	
+    	for (BulletInfo b:bullets) {
+    		if (b.speed < RobotType.TANK.bulletSpeed) {
+	    		//Will the bullet hit us?
+	    		//Calc nearest point this bullet gets to us
+	    		float angle = Math.abs(b.getLocation().directionTo(loc).radiansBetween(b.getDir()));
+	    		if (angle < Math.PI / 2) {
+	        		float hypot = b.getLocation().distanceTo(loc);
+	    			float nearest = (float) (hypot * Math.sin(angle));
+	    			if (nearest <= rc.getType().bodyRadius) {
+	    				target = b; //Don't break - we want the one furthest away (the last in the list)
+	    			}
+	    		}
+    		}
+
+    		if (Clock.getBytecodesLeft() < 3000)
+    			break;
+    	}
+    	
+    	if (target != null) { 		
+    		tryMove(loc.add(target.getDir().opposite()));
+    		rc.fireSingleShot(target.getDir().opposite());
+    	}
+    }
 
     /*
      * Returns the bullet damage at this location
      */
     static float bulletDamage(MapLocation loc) {
     	float damage = 0;
+    	int cutOff = 2000;
+    	if (rc.getType() == RobotType.TANK) //Tanks have more processing to do so need more time
+    		cutOff = 3000;
     	
     	for (BulletInfo b:bullets) {
     		//Will the bullet hit us?
@@ -1502,7 +1540,8 @@ public strictfp class RobotPlayer {
     			if (nearest <= rc.getType().bodyRadius)
     				damage += b.getDamage();
     		}
-    		if (Clock.getBytecodesLeft() < 2000)
+
+    		if (Clock.getBytecodesLeft() < cutOff)
     			break;
     	}
 
