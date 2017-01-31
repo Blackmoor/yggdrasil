@@ -71,7 +71,7 @@ public strictfp class RobotPlayer {
                 break;
         }
 	}
-    
+    /*
     static void setIndicator(MapLocation from, MapLocation to, int red, int green, int blue) throws GameActionException {
     	if (indicatorsOn)
     		rc.setIndicatorLine(from, to, red, green, blue);
@@ -86,6 +86,7 @@ public strictfp class RobotPlayer {
     	if (level <= debugLevel)
     		System.out.println(str);
     }
+    */
     
     static float unitStrength(RobotType type) {
     	if (type.bulletSpeed > 0)
@@ -154,15 +155,15 @@ public strictfp class RobotPlayer {
     	rc.broadcastFloat(2, here.x);
     	rc.broadcastFloat(3, here.y);
     	rallyPoint = here;
-    	debug(4, "Calling for help " + here);
-    	setIndicator(here, 0, 0, 255);
+    	//debug(4, "Calling for help " + here);
+    	//setIndicator(here, 0, 0, 255);
     }
     
     static void cancelHelp() throws GameActionException {
     	rc.broadcast(0, rc.getRoundNum());
     	rc.broadcast(1, 0);
     	rallyPoint = null;
-    	debug(4, "Cancelling help");
+    	//debug(4, "Cancelling help");
     }
     
     static void checkHelp() throws GameActionException {
@@ -257,7 +258,7 @@ public strictfp class RobotPlayer {
 			}
 		}
     	
-		debug(2, "Shot from " + loc + " dir = " + dir + " will hit unit " + nearestUnit + " at distance " + nearestHitUnitDist + " and tree " + nearestTree + " at distance " + nearestHitTreeDist);
+		//debug(2, "Shot from " + loc + " dir = " + dir + " will hit unit " + nearestUnit + " at distance " + nearestHitUnitDist + " and tree " + nearestTree + " at distance " + nearestHitTreeDist);
 		
 		if (nearestUnit != null && (nearestTree == null || nearestHitUnitDist <= nearestHitTreeDist)) { //We hit a robot
 			if (nearestUnit.getTeam() != rc.getTeam())
@@ -310,11 +311,13 @@ public strictfp class RobotPlayer {
         try {
 	    	boolean prime = amIPrime();
 	    	
+	    	/*
 	    	if (prime) {
 	    		debug(1, "I'm the prime archon!");
 			} else {
 		        debug(1, "I'm an archon!");
 			}
+			*/
 	        
 	        // The code you want your robot to perform every round should be in this loop
 	        while (true) {        	
@@ -363,7 +366,7 @@ public strictfp class RobotPlayer {
                 Clock.yield();
 	        }
         } catch (Exception e) {
-            debug(1, "Archon Exception");
+            //debug(1, "Archon Exception");
             e.printStackTrace();
         }
     }
@@ -387,7 +390,7 @@ public strictfp class RobotPlayer {
     }
 
     static boolean buildIt(RobotType type, Direction dir) throws GameActionException {
-    	debug(1, "buildIt: type = " + type + " dir = " + dir);
+    	//debug(1, "buildIt: type = " + type + " dir = " + dir);
     	if (dir == null)
     		dir = rc.getLocation().directionTo(mapCentre);
     	if (dir == null)
@@ -410,7 +413,7 @@ public strictfp class RobotPlayer {
      * Once a garden centre is picked we create a circle of trees within watering distance
      */
 	static void runGardener() throws GameActionException {
-        debug(1, "I'm a gardener!");
+        //debug(1, "I'm a gardener!");
         Team me = rc.getTeam();
         final int sides = 9;
         final float buildDist = (float) (1 / Math.sin(Math.PI/sides)) - RobotType.GARDENER.bodyRadius - GameConstants.BULLET_TREE_RADIUS;
@@ -580,7 +583,7 @@ public strictfp class RobotPlayer {
                 Clock.yield();
 
             } catch (Exception e) {
-                debug(1, "Gardener Exception");
+                //debug(1, "Gardener Exception");
                 e.printStackTrace();
             }
         }
@@ -628,7 +631,7 @@ public strictfp class RobotPlayer {
 	 * If it is further away we may need to fire multiple shots to guarantee hitting it with one bullet
 	 */
 	static void shoot(RobotInfo target) throws GameActionException {
-		debug(1, "Shooting at " + target);
+		//debug(1, "Shooting at " + target);
 
 		if (target == null || !canShoot(target))
 			return;
@@ -653,61 +656,59 @@ public strictfp class RobotPlayer {
     	float spreadAngle = (float) Math.asin(target.getType().bodyRadius/dist);
     	int shotsToFire = 0;
     	Direction shotDir = dir;
-    	debug(3, "shoot: target " + target +  " dist=" + dist + " spreadAngle = " + spreadAngle + " (" + Math.toDegrees((double)spreadAngle) + ")");
+    	//debug(3, "shoot: target " + target +  " dist=" + dist + " spreadAngle = " + spreadAngle + " (" + Math.toDegrees((double)spreadAngle) + ")");
     	if (shot == -2) { //can be dodged
     		if (rc.canFireTriadShot() && dist <= target.getType().bodyRadius / Math.sin(Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES/2))) {
     			shotsToFire = 3;
-    			debug (3, "Firing 3 - 1 should hit");
+    			//debug (3, "Firing 3 - 1 should hit");
     		} else if (rc.canFirePentadShot() && dist <= target.getType().bodyRadius / Math.sin(Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES/2))) {
     			shotsToFire = 5;
-    			debug (3, "Firing 5 - 1 should hit");
+    			//debug (3, "Firing 5 - 1 should hit");
     		}
     	} else if (rc.canFirePentadShot() && 2*spreadAngle >= Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*4)) { //All 5 shots will hit
     		shotsToFire = 5;
-    		debug (3, "Firing 5 - all should hit");
+    		//debug (3, "Firing 5 - all should hit");
     	} else if (rc.canFirePentadShot() && 2*spreadAngle > Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*3)) { //4 shots will hit
     		shotsToFire = 5;
     		shotDir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES/2);
-    		debug (3, "Firing 5 - 4 should hit");
+    		//debug (3, "Firing 5 - 4 should hit");
     	} else if (rc.canFireTriadShot() && 2*spreadAngle > Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES*2)) { //All 3 triad shots will hit
     		shotsToFire = 3;
-    		debug (3, "Firing 3 - all should hit");
+    		//debug (3, "Firing 3 - all should hit");
     	} else if (rc.canFirePentadShot() && 2*spreadAngle > Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES*2)) { //3 of 5 shots will hit)
     		shotsToFire = 5;
-    		debug (3, "Firing 5 - 3 should hit");
+    		//debug (3, "Firing 5 - 3 should hit");
     	} else if (rc.canFireTriadShot() && 2*spreadAngle > Math.toRadians(GameConstants.TRIAD_SPREAD_DEGREES*2)) { //2 of a triad shots will hit
     		shotsToFire = 3;
     		shotDir.rotateLeftDegrees(GameConstants.TRIAD_SPREAD_DEGREES/2);
-    		debug (3, "Firing 3 - 2 should hit");
+    		//debug (3, "Firing 3 - 2 should hit");
     	} else if (rc.canFirePentadShot() && 2*spreadAngle > Math.toRadians(GameConstants.PENTAD_SPREAD_DEGREES)) { //2 of 5 shots will hit
     		shotsToFire = 5;
     		shotDir.rotateRightDegrees(GameConstants.PENTAD_SPREAD_DEGREES/2);
-    		debug (3, "Firing 5 - 2 should hit");
+    		//debug (3, "Firing 5 - 2 should hit");
     	} else if (rc.canFireSingleShot() && shot == 1) {
     		shotsToFire = 1;
-    		debug (3, "Firing 1 shot");
+    		//debug (3, "Firing 1 shot");
     	}
     	
     	if (shotsToFire == 5) {
     		rc.firePentadShot(shotDir);
-    		debug(2, "Shooting 5 shots at " + target);
+    		//debug(2, "Shooting 5 shots at " + target);
     	} else if (shotsToFire == 3) {
     		rc.fireTriadShot(shotDir);
-    		debug(2, "Shooting 3 shots at " + target);
+    		//debug(2, "Shooting 3 shots at " + target);
     	} else if (shotsToFire == 1) {
     		rc.fireSingleShot(shotDir);
-    		debug(2, "Firing 1 shot at " + target);
+    		//debug(2, "Firing 1 shot at " + target);
 		}
     	if (shotsToFire > 0) { //We shot so update bullet info
     		bullets = rc.senseNearbyBullets();
-    	} else {
-    		debug(2, "Not shooting at " + target + " dist=" + dist);
     	}
 	}
 	
 	
     static void runCombat() throws GameActionException {
-        debug(1, "I'm a combatant!");
+        //debug(1, "I'm a combatant!");
 
         // The code you want your robot to perform every round should be in this loop
         while (true) {       	
@@ -728,7 +729,7 @@ public strictfp class RobotPlayer {
                 Clock.yield();
 
             } catch (Exception e) {
-                debug(1, "Combatant Exception");
+                //debug(1, "Combatant Exception");
                 e.printStackTrace();
             }
         }
@@ -781,7 +782,7 @@ public strictfp class RobotPlayer {
     		float distanceToTree = r.getLocation().distanceTo(t.getLocation());
     		float gapBetween = distanceToTree - t.getRadius() - r.getType().bodyRadius;
     		if (gapBetween < 0) { //Occupied
-    			setIndicator(t.getLocation(),255,128,128);
+    			//setIndicator(t.getLocation(),255,128,128);
     			return false;
     		}
 
@@ -792,12 +793,12 @@ public strictfp class RobotPlayer {
     			else
     				dangerDist += GameConstants.BULLET_SPAWN_OFFSET;
     			if (gapBetween <= dangerDist) {
-    				setIndicator(t.getLocation(), 255,0,0);
+    				//setIndicator(t.getLocation(), 255,0,0);
     				return false;
     			}
     		}
     	}
-    	setIndicator(t.getLocation(),0,255,0);
+    	//setIndicator(t.getLocation(),0,255,0);
     	return true;
     }
     
@@ -876,17 +877,17 @@ public strictfp class RobotPlayer {
         	if (nearestTree != null) { //Scouts can hide in trees
         		float bulletOffset = GameConstants.BULLET_SPAWN_OFFSET / 2;
             	float dist = nearestTree.radius - RobotType.SCOUT.bodyRadius - bulletOffset;
-            	debug(2, "Hiding in tree " + nearestTree + " target = " + nearestDanger);
+            	//debug(2, "Hiding in tree " + nearestTree + " target = " + nearestDanger);
             	if (dist >= 0)
             		combatPosition = nearestTree.getLocation().add(nearestTree.getLocation().directionTo(dangerLoc),dist);
             	else
             		combatPosition = nearestTree.getLocation().add(nearestTree.getLocation().directionTo(dangerLoc).opposite(),-dist);	                		
         	} else if (nearestDanger.getType() == RobotType.LUMBERJACK || (nearestLumberjack != null && myLocation.distanceTo(nearestLumberjack.getLocation()) < safeDistance)) {
-        		debug(2, "Keeping at range from enemy lumberjack" + nearestLumberjack);
+        		//debug(2, "Keeping at range from enemy lumberjack" + nearestLumberjack);
             	combatPosition = nearestLumberjack.getLocation().add(nearestLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
         	} else if (canShoot(nearestDanger) && canBeat(nearestDanger)) {
         		RobotType t = nearestDanger.getType();
-        		debug(2, "Can Win: Closing on " + nearestDanger);
+        		//debug(2, "Can Win: Closing on " + nearestDanger);
         		overrideDanger = true;
        		
     			TreeInfo tr = null;
@@ -904,13 +905,13 @@ public strictfp class RobotPlayer {
     				}
     			}       		
         	} else {
-            	debug(2, "Running from " + nearestDanger);
+            	//debug(2, "Running from " + nearestDanger);
             	RobotType t = nearestDanger.getType();
             	safeDistance = t.sensorRadius + rc.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET;
             	combatPosition = nearestDanger.getLocation().add(nearestDanger.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);    	
         	}
         } else if (nearestAllyLumberjack != null && nearestEnemy != null && myLocation.distanceTo(nearestAllyLumberjack.getLocation()) < safeDistance) {
-    		debug(2, "Keeping at range from our lumberjack" + nearestAllyLumberjack);
+    		//debug(2, "Keeping at range from our lumberjack" + nearestAllyLumberjack);
         	combatPosition = nearestAllyLumberjack.getLocation().add(nearestAllyLumberjack.getLocation().directionTo(myLocation).rotateLeftDegrees(5), safeDistance);
     	} else { //Not in danger so close with best enemy target
         	RobotInfo target = null;
@@ -920,7 +921,7 @@ public strictfp class RobotPlayer {
         	else if (nearestArchon != null)
         		target = nearestArchon;
         	if (target != null) {
-        		debug(2, "Safe: Closing on " + target);
+        		//debug(2, "Safe: Closing on " + target);
         		combatPosition = target.getLocation().add(target.getLocation().directionTo(myLocation).rotateLeftDegrees(5), rc.getType().bodyRadius + target.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET);
         	}
         }
@@ -968,7 +969,7 @@ public strictfp class RobotPlayer {
      * Even our own lumberjacks will hit us if they can see an enemy
      */
     static void runScout() throws GameActionException {
-        debug(1, "I'm a scout!");
+        //debug(1, "I'm a scout!");
         Team enemy = rc.getTeam().opponent();
         MapLocation[] archons = rc.getInitialArchonLocations(enemy);
         int archon_to_visit = 0;
@@ -998,7 +999,7 @@ public strictfp class RobotPlayer {
                 		if (rc.getLocation().distanceTo(archons[(archon_to_visit+nearest)%archons.length]) < rc.getType().strideRadius)
 	                		archon_to_visit++;             		
 	                	tryMove(archons[(archon_to_visit+nearest)%archons.length]);
-	                	debug(2, "Moving to next archon " + archons[(archon_to_visit+nearest)%archons.length]);
+	                	//debug(2, "Moving to next archon " + archons[(archon_to_visit+nearest)%archons.length]);
                 	}
                 }
                 
@@ -1006,7 +1007,7 @@ public strictfp class RobotPlayer {
                 Clock.yield();
 
             } catch (Exception e) {
-                debug(1, "Scout Exception");
+                //debug(1, "Scout Exception");
                 e.printStackTrace();
             }
         }
@@ -1021,7 +1022,7 @@ public strictfp class RobotPlayer {
     }
 
     static void runLumberjack() throws GameActionException {
-        debug(1, "I'm a lumberjack!");
+        //debug(1, "I'm a lumberjack!");
         Team me = rc.getTeam();
         Team enemy = me.opponent();
 
@@ -1039,7 +1040,7 @@ public strictfp class RobotPlayer {
             	else
             		overrideDanger = false;
             	
-            	debug(2, "Nearest enemy = " + nearestEnemy + " can beat = " + overrideDanger);
+            	//debug(2, "Nearest enemy = " + nearestEnemy + " can beat = " + overrideDanger);
             	
             	// See if there are any enemy robots within striking range - we only attack enemies we can beat - otherwise we retreat
             	if (damageAtLocation(rc.getLocation()) > 0 && !overrideDanger) {
@@ -1050,20 +1051,20 @@ public strictfp class RobotPlayer {
             		} else {
             			away = rc.getLocation().add(nearestEnemy.getLocation().directionTo(rc.getLocation()), RobotType.LUMBERJACK.strideRadius);
             		}
-            		debug(2, "Dodging to safety");
+            		//debug(2, "Dodging to safety");
             		tryMove(away, 18, 10, 10);
             	} else if (nearestEnemy != null) { //We can beat it so close and attack
             		float distance = rc.getLocation().distanceTo(nearestEnemy.getLocation());
-            		debug(2, "Moving towards " + nearestEnemy + " current distance = " + distance);
+            		//debug(2, "Moving towards " + nearestEnemy + " current distance = " + distance);
 	                if (distance > GameConstants.LUMBERJACK_STRIKE_RADIUS + nearestEnemy.getType().bodyRadius) {
-	                	debug(2, "Moving towards " + nearestEnemy);
+	                	//debug(2, "Moving towards " + nearestEnemy);
 	                	moveTowards(nearestEnemy);
 	                }
 	                
 	                RobotInfo[] local = rc.senseNearbyRobots(GameConstants.LUMBERJACK_STRIKE_RADIUS, enemy);
 	                if (local.length > 0) {
 	                    // Use strike() to hit all nearby robots!
-	                	debug(2, "Striking at " + local.length + " enemies");
+	                	//debug(2, "Striking at " + local.length + " enemies");
 	                    rc.strike();
 	                }
             	}
@@ -1125,7 +1126,7 @@ public strictfp class RobotPlayer {
                 Clock.yield();
 
             } catch (Exception e) {
-                debug(1, "Lumberjack Exception");
+                //debug(1, "Lumberjack Exception");
                 e.printStackTrace();
             }
         }
@@ -1166,21 +1167,21 @@ public strictfp class RobotPlayer {
         
         int lumberjacks = lumberjacksInRange(loc);
     	if (lumberjacks > 0) {
-    		setIndicator(loc, 255, 0, 128);
+    		//setIndicator(loc, 255, 0, 128);
     		damage += lumberjacks * RobotType.LUMBERJACK.attackPower;
     	}
     	
     	if (rc.getType() == RobotType.SCOUT) {
     		TreeInfo tree = getTreeAtLocation(loc);
     		if (tree != null && withinTree(tree) && isTreeSafe(tree)) {
-	    		setIndicator(loc, 0, 255, 128);
+	    		//setIndicator(loc, 0, 255, 128);
 	    		return damage;
     		}
     	}
   	
     	float bullets = bulletDamage(loc);
     	if (bullets > 0) {
-    		setIndicator(loc, 255, 0, 0);
+    		//setIndicator(loc, 255, 0, 0);
     		damage += bullets;
     	}
     	
@@ -1196,12 +1197,12 @@ public strictfp class RobotPlayer {
 	        		}
 	    		}
 	    	}
-	    	if (damage > startDamage)
-    			setIndicator(loc, 128, 0, 0);
+	    	//if (damage > startDamage)
+    		//	setIndicator(loc, 128, 0, 0);
     	}
     	
-    	if (damage == 0)
-    		setIndicator(loc, 0, 255, 0);
+    	//if (damage == 0)
+    	//	setIndicator(loc, 0, 255, 0);
     	
     	return damage;
     }
@@ -1233,7 +1234,7 @@ public strictfp class RobotPlayer {
     	if (rc.hasMoved())
     		return;
     	
-    	debug(2, "Wandering");
+    	//debug(2, "Wandering");
     	if (wanderDir == null)
     		wanderDir = randomDirection();
 
@@ -1315,7 +1316,7 @@ public strictfp class RobotPlayer {
         	if (damage == 0) {
         		wanderDir = here.directionTo(dest);
 	            rc.move(dest);
-	            setIndicator(here, dest, 0, 255, 0);
+	            //setIndicator(here, dest, 0, 255, 0);
 	            return true;
         	}
         }
@@ -1324,7 +1325,7 @@ public strictfp class RobotPlayer {
         int currentCheck = 1;
         int checksPerSide = Math.max(checksLeft, checksRight);
         
-        debug(3, "tryMove: checking " + checksPerSide + " locations (" + checksLeft + " left and " + checksRight + " right)");
+        //debug(3, "tryMove: checking " + checksPerSide + " locations (" + checksLeft + " left and " + checksRight + " right)");
 
         while(currentCheck<=checksPerSide) {
             // Try the offset of the left side
@@ -1339,7 +1340,7 @@ public strictfp class RobotPlayer {
 	            	if (damage == 0) {
 	            		wanderDir = here.directionTo(dest);
 	    	            rc.move(dest);
-	    	            setIndicator(here, dest, 0, 255, 0);
+	    	            //setIndicator(here, dest, 0, 255, 0);
 	    	            return true;
 	            	}
 	            }
@@ -1357,7 +1358,7 @@ public strictfp class RobotPlayer {
 	            	if (damage == 0) {
 	            		wanderDir = here.directionTo(dest);
 	    	            rc.move(dest);
-	    	            setIndicator(here, dest, 0, 255, 0);
+	    	            //setIndicator(here, dest, 0, 255, 0);
 	    	            return true;
 	            	}
 	            }
@@ -1369,7 +1370,7 @@ public strictfp class RobotPlayer {
         if (bestUnsafe != null && leastDamage <= damageAtLocation(here) && canMove(bestUnsafe)) { //Not safe here so happy to move to another unsafe place
         	wanderDir = here.directionTo(bestUnsafe);
         	rc.move(bestUnsafe);
-        	setIndicator(here, bestUnsafe, 255, 0, 0);
+        	//setIndicator(here, bestUnsafe, 255, 0, 0);
         	return true;
         }
 
@@ -1429,20 +1430,20 @@ public strictfp class RobotPlayer {
     		if (treeDist < robotDist) { //Tree is nearer
     			blocker = wallTree.getLocation();
     			distance = treeDist;
-    			setIndicator(rc.getLocation(), wallTree.getLocation(), 0, 0, 0);
+    			//setIndicator(rc.getLocation(), wallTree.getLocation(), 0, 0, 0);
     		} else {
     			blocker = wallRobot.getLocation();
     			distance = robotDist;
-    			setIndicator(rc.getLocation(), wallRobot.getLocation(), 0, 0, 0);
+    			//setIndicator(rc.getLocation(), wallRobot.getLocation(), 0, 0, 0);
     		}
     	} else if (wallTree != null) {
     		blocker = wallTree.getLocation();
 			distance = treeDist;
-			setIndicator(rc.getLocation(), wallTree.getLocation(), 0, 0, 0);
+			//setIndicator(rc.getLocation(), wallTree.getLocation(), 0, 0, 0);
 		} else if (wallRobot != null) {
 			blocker = wallRobot.getLocation();
 			distance = robotDist;
-			setIndicator(rc.getLocation(), wallRobot.getLocation(), 0, 0, 0);
+			//setIndicator(rc.getLocation(), wallRobot.getLocation(), 0, 0, 0);
 		}
 
     	//Check to see if the edge of the map is nearer
@@ -1472,7 +1473,7 @@ public strictfp class RobotPlayer {
     	}
     	
     	float diff = Math.abs(wanderDir.radiansBetween(rc.getLocation().directionTo(dest)));		
-    	setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir, 3), 128, 128, 128);
+    	//setIndicator(rc.getLocation(), rc.getLocation().add(wanderDir, 3), 128, 128, 128);
     	
     	if (diff > Math.PI/8) {
     		if (followLeft) { //Keep the wall on our left
