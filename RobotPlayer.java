@@ -843,7 +843,9 @@ public strictfp class RobotPlayer {
         
         if (rc.getType() == RobotType.SCOUT && damageAtLocation(rc.getLocation()) > 0) {
         	//We are better off dodging by moving away
-        	MapLocation away = rc.getLocation().add(nearestEnemy.getLocation().directionTo(rc.getLocation()), RobotType.SCOUT.strideRadius);
+        	shoot(nearestEnemy);
+        	safeDistance = nearestEnemy.getType().sensorRadius + rc.getType().bodyRadius + GameConstants.BULLET_SPAWN_OFFSET; //Move out of its sight radius
+        	MapLocation away = rc.getLocation().add(nearestEnemy.getLocation().directionTo(rc.getLocation()).rotateLeftDegrees(5), safeDistance);
         	tryMove(away);
         	return false;
         }
@@ -925,10 +927,12 @@ public strictfp class RobotPlayer {
         	tryMove(combatPosition);
         }
         
-        //Now find nearest target to new position
-        RobotInfo[] targets = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
-        if (targets.length > 0) {
-        	shoot(targets[0]);
+        if (!rc.hasAttacked()) {
+	        //Now find nearest target to new position
+	        RobotInfo[] targets = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
+	        if (targets.length > 0) {
+	        	shoot(targets[0]);
+	        }
         }
         
         return true;
